@@ -16,8 +16,10 @@
 %https://github.com/MiniZinc/minizinc-benchmarks/blob/master/openshop/openshop.mzn
      
 % MAIN DEFINITIONS
-enum JOB;
-enum CORE;
+int N_JOBS;
+int N_CORES;
+enum JOB = anon_enum(N_JOBS);
+enum CORE = anon_enum(N_CORES);
 array [JOB,CORE] of int: d;                   % task durations
 
 % BOUNDS FOR MAKESPAN 
@@ -43,7 +45,7 @@ constraint forall(i in JOB)(
 constraint %% minimize the makespan
     forall(j in CORE) (
         forall(i in JOB) (
-            sel[i,j]*(s[i,j] + d[i,j]) < end)
+            sel[i,j]*(s[i,j] + d[i,j]) <= end)
     );  
 
 predicate no_overlap(var int: start0, var int: duration0,
