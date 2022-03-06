@@ -1,0 +1,38 @@
+% TASKS=2;
+% CORES=2;
+% % express the mapping constraint among hw resources (cores, fpga partitions, gpu, etc) with tasks. When 0, means that 
+% % this task cannot be mapped onto this hw resource
+% mapping_const= [
+% %            C0, C1
+%             | 1,  1     % t0
+%             | 1,  1 |];  % t1
+
+% % represents the power consumed if the task is mapped to the core
+% power=[
+% %            C0,  C1
+%             | 10,  15   % t0
+%             | 10,  5 |]; % t1
+            
+% wcet=[
+% %            C0,  C1
+%             | 10,  8     % t0
+%             | 10,  13 |]; % t1
+            
+% deadline=20;
+
+
+JOB = anon_enum(3);
+CORE = anon_enum(2);
+d = [| 1, 2
+     | 2, 1
+     | 1, 2 |];
+     
+
+% JOB = anon_enum(5);
+% TASK = anon_enum(5);
+% d = [| 1, 4, 5, 3, 6 
+%      | 3, 2, 7, 1, 2
+%      | 4, 4, 4, 4, 4  
+%      | 1, 1, 1, 6, 8
+%      | 7, 3, 2, 2, 1 |];
+     
