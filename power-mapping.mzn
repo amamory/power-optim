@@ -1,12 +1,23 @@
-%include params;
+% The set of jobs (JOB) must be schedule on any of hw processing units (PU) represented by set CORE|.
+% The jobs have a duration (d). 
+% These hw PUs can be heterogeneous, meaning that for each job j in JOB, c1 and c2 in CORE, 
+% the duration d[j,c1] can be different from d[j,c2]. Like, for example, in ARM bigLittle processors.
+
+% Constraints:
+% - a core can only run one job at a time
+% - a job run once in a single core 
+% - a job cannot be preempted
+
+% Objective:
+% - minimize the makespan (end)
 
 %https://en.wikipedia.org/wiki/Open-shop_scheduling
 %https://www.minizinc.org/doc-2.5.3/en/downloads/jobshop.mzn
 %https://github.com/MiniZinc/minizinc-benchmarks/blob/master/openshop/openshop.mzn
      
+% MAIN DEFINITIONS
 enum JOB;
 enum CORE;
-CORE: last = max(CORE);
 array [JOB,CORE] of int: d;                   % task durations
 
 % BOUNDS FOR MAKESPAN 
@@ -17,23 +28,17 @@ int: total = sum(i in JOB)(max(row(d,i)));  % total duration, upper bound for ma
 int: lb = ceil(int2float(sum(i in JOB)(min(row(d,i)))) / int2float(card(CORE)));  % total duration, lower bound for makespan
 
 % AUX CONTANTS
-int: digs = ceil(log(10.0,int2float(total)));      % calculate the max number of digits just for printing the output
+int: digs = ceil(log(10.0,int2float(total)));  % calculate the max number of digits just for printing the output
+CORE: last = max(CORE);
 
 % VARIABLES
 array [JOB,CORE] of var 0..total: s;           % start times
 array [JOB,CORE] of var 0..1: sel;             % 1 when the ws is selected to execute the job
-var lb..total: end;                              % total end time, the variable representing the makespan
+var lb..total: end;                            % total end time, the variable representing the makespan
 
 % a job runs on a single workstation
 constraint forall(i in JOB)(
              sum(row(sel,i)) == 1);
-
-% constraint %% ensure the tasks occur in sequence
-%     forall(i in JOB) (
-%         forall(j in CORE where j < last) 
-%             (s[i,j] + d[i,j] <= s[i,enum_next(CORE,j)]) /\
-%         s[i,last] + d[i,last] <= end
-%     );
 
 constraint %% minimize the makespan
     forall(j in CORE) (
@@ -57,9 +62,6 @@ solve minimize end;
 output ["end = \(end)\n"] ++
        ["ub = \(total)\n"] ++
        ["lb = \(lb)\n"] ++
-       [ show_int(digs,s[i,j]*sel[i,j]) ++ " " ++ 
-         if j == last then "\n" else "" endif |
-         i in JOB, j in CORE ] ++
        ["------------\n"] ++
        [ show_int(digs,sel[i,j]) ++ " " ++ 
          if j == last then "\n" else "" endif |
