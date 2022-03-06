@@ -1,3 +1,4 @@
+# reused from https://github.com/amamory-embedded/sched-learning/blob/master/src/common.py
 import sys
 from math import gcd
 import datetime
@@ -21,72 +22,6 @@ def versiontuple(v):
         >>> False
     """    
     return tuple(map(int, (v.split("."))))
-
-
-def check_rms_edf(task_list):
-    """Parse the YAML for the required field for RMS and EDF algorithms.
-
-    .. literalinclude:: ../../wikipedia.yaml
-        :language: yaml
-        :linenos:
-
-    :param task_list: List of task descriptors, as in the example above.
-    :type  task_list: List of dictionaries.
-    :return: True for success, False otherwise.
-    :rtype: bool
-    """
-
-    ##############
-    # validate the input format first. some fields are expected for rms
-    ##############
-
-    # must have at least 2 tasks
-    if len(task_list) <= 1:
-        print ("ERROR: the task list must have more than 1 task. Found", len(task_list))
-        return False
-
-    # check if all tasks have the mandatory fields
-    print ('checking the task list ... ', end='')
-    for task in task_list:
-        if 'name' not in task:
-            print ("\nERROR: field 'name' not found in task")
-            return False
-        if 'exec_time' not in task:
-            print ("\nERROR: field 'exec_time' not found in task")
-            return False
-        if 'period' not in task:
-            print ("\nERROR: field 'period' not found in task")
-            return False
-        if 'deadline' not in task:
-            print ("\nERROR: field 'deadline' not found in task")
-            return False
- 
-    # each task must have a name (str), exec_time (N), deadline (N), period (N)
-    for task in task_list:
-        if type(task['name']) is not str:
-            print ("\nERROR: string expected in the 'name' field. Got",type(task['name']))
-            return False
-        if type(task['exec_time']) is not int:
-            print ("\nERROR: int expected in the 'exec_time' field. Got",type(task['exec_time']))
-            return False
-        if task['exec_time'] <= 0:
-            print ("\nERROR: 'exec_time' field must be a positive integer. Got",task['exec_time'])
-            return False
-        if type(task['period']) is not int:
-            print ("\nERROR: int expected in the 'period' field. Got",type(task['period']))
-            return False
-        if task['period'] <= 0:
-            print ("\nERROR: 'period' field must be a positive integer. Got",task['period'])
-            return False
-        if type(task['deadline']) is not int:
-            print ("\nERROR: int expected in the 'deadline' field. Got",type(task['deadline']))
-            return False
-        if task['deadline'] <= 0:
-            print ("\nERROR: 'deadline' field must be a positive integer. Got",task['deadline'])
-            return False
-
-    print ('passed !')  
-    return True  
 
 
 
@@ -142,8 +77,6 @@ def check_sched(sched):
     print ('passed !')  
     return True  
 
-
-
 def convert_to_datetime(x):
     """Converts a natural number to date. 
     
@@ -160,8 +93,6 @@ def convert_to_datetime(x):
     #data_conv = datetime.datetime.fromtimestamp(31536000+x*24*3600).strftime("%Y-%m-%d")
     data_conv2 = (datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc) + datetime.timedelta(days=x)).strftime("%Y-%m-%d")
     return data_conv2
-
-
 
 def plot_gantt(sched, verbose = False):
     """Use the plotly lib to plot the gantt chart.
@@ -272,64 +203,3 @@ def plot_gantt(sched, verbose = False):
 
     # it will show in the browser
     fig.show()
-
-def sched_list_2_sched_dict(tasks,sched_list,verbose=False):
-    """Schedule format conversion.
-    
-    Convert a scheduling in format of a list into a schedule in the format of list of dictionary.
-
-    .. literalinclude:: ../../wikipedia.yaml
-        :language: yaml
-        :linenos:
-
-    :param tasks: List of tasks descriptors, as in the example above.
-    :param sched_list: List the execution order of the jobs, e.g. ["P1","P1","P1","idle","P3","P2","P3", ...].
-    :param verbose: Enable/disable the verbosity level.
-    :type tasks: List of dictionaries.
-    :type sched_list: List of str.
-    :type verbose: bool.
-
-    .. literalinclude:: ../../wikipedia-sched.yaml
-        :language: yaml
-        :linenos:
-
-    :return: List of schedule descriptors, as in the example above.
-    :rtype: List of dictionaries.
-    """       
-    # creating the data structrute for scheduling
-    sched = {}
-    sched['title'] = 'Some title'
-    sched['sched'] = []
-    for task in tasks:
-        sched_task = {}
-        sched_task['name'] = task['name']
-        sched_task['jobs'] = []
-        if task['name'] == 'idle':
-            sched_task['color'] = 'green'
-        else:
-            sched_task['color'] = 'blue'
-        if verbose:
-            print ("#############", task['name'], "#############")
-            print (sched_task)
-        #search for this task in the schedule
-        idx = 0
-        while idx < len(sched_list):
-            if task['name'] == sched_list[idx]:
-                start_time = idx
-                if idx != len(sched_list):
-                    for idx2, ready_task2 in enumerate(sched_list[idx:]):
-                        end_time = idx+idx2
-                        if task['name'] != ready_task2:
-                            #skip the start time to the next period
-                            idx = end_time
-                            break
-                else:
-                    end_time = idx
-                #print (task['name'], "[",start_time,end_time,"]")
-                sched_task['jobs'].append([start_time,end_time])
-            idx +=1
-        sched['sched'].append(sched_task)
-        if verbose:
-            print (sched_task)
-            print ("##########################")
-    return sched

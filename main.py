@@ -2,14 +2,13 @@
 import sys
 import os
 import argparse
-import time
 import subprocess
 import json
 import pymzn
 from operator import itemgetter # for sorting
 
 # internal lib
-#from common import plot_gantt
+from common import plot_gantt
 
 def main():
     """ Run Minizinc model and plot the resulting schedule 
@@ -77,8 +76,6 @@ def main():
     print(out_json)
     # convert json string into a dictionary, easing data access
     out_dict=json.loads(out_json)
-    print(out_dict)
-    print(out_dict["s"])
 
     # the plotting tool uses yaml format, so we need another convertion
     # yaml format: https://yatss.readthedocs.io/en/latest/#output-file-schedule-yaml-file
@@ -96,14 +93,14 @@ def main():
             # if the job j has been assigned to core c, then get its start and end times
             if out_dict["sel"][j][c] == 1:
                 start_time = out_dict["s"][j][c]
-                end_time = start_time + d_list[j][c] - 1
+                end_time = start_time + d_list[j][c]
                 sched_task['jobs'].append([start_time,end_time])
         # sort the jobs in ascending order
         sched_task['jobs'] = sorted(sched_task['jobs'], key=itemgetter(0))
         sched['sched'].append(sched_task)    
 
-    print(sched)
-    #plot_gantt(sched)
+    print("Makespan:", out_dict["end"])
+    plot_gantt(sched)
 
 if __name__ == "__main__":
     main()
