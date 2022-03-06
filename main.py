@@ -4,7 +4,7 @@ import os
 import argparse
 import time
 import subprocess
-import atexit
+import json
 
 def main():
     """ Run Minizinc model and plot the resulting schedule 
@@ -50,19 +50,15 @@ def main():
     
     # the minizinc output is a list of bytes
     out_str = out.stdout.readlines()
-    # print (type(out_str))
-    # print (len(out_str))
-    # print (type(out_str[0]))
     # the 2 last lines are useless
     out_str = out_str[:-2]
-    # print (len(out_str))
-    # print (out_str)
     # this will convert a list of bytes into a single string
     out_json=b''.join(out_str).decode('utf-8')
-    # print (type(out_json))
-    # out_json=out_json.replace('\\n', '\n')
-    print("FORMATTED:")
+    print("JSON output:")
     print(out_json)
+
+    out_dict=json.loads(out_json)
+    print(out_dict)
 
 
 if __name__ == "__main__":
