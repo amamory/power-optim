@@ -8,7 +8,7 @@ import pymzn
 from operator import itemgetter # for sorting
 
 # internal lib
-from common import plot_gantt
+from lib.plot import plot_gantt
 
 def main():
     """ Run Minizinc model and plot the resulting schedule 

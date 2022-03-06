@@ -166,7 +166,7 @@ def plot_gantt(sched, verbose = False):
                     ))
         else:
             for job in task['jobs']:
-                list_tasks.append(dict(Task=task['name'], Start=convert_to_datetime(job[0]), 
+                list_tasks.append(dict(Core=task['name'], Start=convert_to_datetime(job[0]), 
                     Finish=convert_to_datetime(job[1]), Color = task_color, 
                     # used only by the hover feature
                     Start_tick = job[0], Finish_tick = job[1], Duration = job[1]-job[0]
@@ -182,7 +182,7 @@ def plot_gantt(sched, verbose = False):
     else:
         chart_title = ''
 
-    fig = px.timeline(df, title = chart_title, x_start="Start", x_end="Finish", color = "Color", y="Task",
+    fig = px.timeline(df, title = chart_title, x_start="Start", x_end="Finish", color = "Color", y="Core",
         # info used only for the hover feature
         custom_data = ['Start_tick','Finish_tick','Duration'])
     
