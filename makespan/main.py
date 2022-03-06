@@ -54,6 +54,8 @@ def main():
 
     print ("MODEL:", path_model)
     print ("DATA:", path_data)
+    print ("N_JOBS:", n_jobs)
+    print ("N_CORES:", n_cores)
     try:
         out = subprocess.Popen(["minizinc", "-m", path_model, "-d", path_data,
             "--output-mode", "json"],
