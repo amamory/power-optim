@@ -2,6 +2,7 @@ pandas
 numpy
 pyyaml
 plotly
+pymzn
 sphinx
 sphinx-rtd-theme
 sphinx-autoapi

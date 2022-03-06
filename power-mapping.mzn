@@ -16,8 +16,8 @@
 %https://github.com/MiniZinc/minizinc-benchmarks/blob/master/openshop/openshop.mzn
      
 % MAIN DEFINITIONS
-int N_JOBS;
-int N_CORES;
+int : N_JOBS;
+int : N_CORES;
 enum JOB = anon_enum(N_JOBS);
 enum CORE = anon_enum(N_CORES);
 array [JOB,CORE] of int: d;                   % task durations

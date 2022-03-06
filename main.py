@@ -6,6 +6,7 @@ import time
 import subprocess
 import json
 import pymzn
+from operator import itemgetter # for sorting
 
 # internal lib
 #from common import plot_gantt
@@ -95,10 +96,13 @@ def main():
             # if the job j has been assigned to core c, then get its start and end times
             if out_dict["sel"][j][c] == 1:
                 start_time = out_dict["s"][j][c]
-                end_time = start_time + d_list[j][c]
+                end_time = start_time + d_list[j][c] - 1
                 sched_task['jobs'].append([start_time,end_time])
+        # sort the jobs in ascending order
+        sched_task['jobs'] = sorted(sched_task['jobs'], key=itemgetter(0))
         sched['sched'].append(sched_task)    
 
+    print(sched)
     #plot_gantt(sched)
 
 if __name__ == "__main__":
