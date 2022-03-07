@@ -1,4 +1,4 @@
-% tiny instance for the model that minimizes the makespan predence constraint
+% tiny instance for the model that minimizes the makespan precedence constraint
 
 N_JOBS = 5;
 N_EDGES = 6;

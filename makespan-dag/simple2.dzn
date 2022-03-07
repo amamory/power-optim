@@ -1,0 +1,53 @@
+% tiny instance for the model that minimizes the makespan precedence constraint.
+% Same DAG used in simple.dzn, but with different job durations.
+% This case shows the optimization for heterogeneous since we can see that: 
+% 1) j1 and j2 are run in C1 instead of running both in parallel even considering that 
+% the precedence would allow running them in parallel.
+% 2) similarly, j3 and j4 could be both run in parallel w duration 2 for each job 
+% or run sequentially w duration 1 for each job
+
+% OUTPUT
+% MODEL: model.mzn
+% DATA: simple2.dzn
+% N_JOBS: 5
+% N_CORES: 2
+% JSON output:
+% {
+%   "s" : [[11, 0], [0, 8], [3, 7], [10, 11], [9, 9]],
+%   "sel" : [[0, 1], [0, 1], [0, 1], [1, 0], [1, 0]],
+%   "end" : 11,
+%   "used" : [[0, 7], [8, 1], [7, 1], [10, 1], [9, 1]]
+% }
+
+% Makespan: 11
+
+N_JOBS = 5;
+N_EDGES = 6;
+N_CORES = 2;
+
+% this is the job (line) duration on each core (col)
+d = [| 10, 7
+     | 3, 1
+     | 3, 1
+     | 1, 2 
+     | 1, 2 |];
+
+% from: the leaving node for each edge
+% to: the entering node for each edge
+% list of edges indicating which nodes are connected
+e =  [| 1, 2
+      | 1, 3
+      | 2, 4
+      | 2, 5
+      | 3, 4
+      | 3, 5 |]; 
+
+% http://www.webgraphviz.com/
+% digraph G {
+%   "0" -> "1"
+%   "0" -> "2"
+%   "1" -> "3"
+%   "1" -> "4"
+%   "2" -> "3"
+%   "2" -> "4"
+% }
