@@ -33,7 +33,7 @@ enum JOB = anon_enum(N_JOBS);
 enum EDGE = anon_enum(N_EDGES);
 enum CORE = anon_enum(N_CORES);
 array [JOB,CORE] of int: d;                   % task durations
-array [1..N_EDGES,1..2] of 0..N_JOBS-1: e;            % the DAG edges: source node to target node
+array [1..N_EDGES,1..2] of 1..N_JOBS: e;            % the DAG edges: source node to target node
 
 % BOUNDS FOR MAKESPAN 
 % UPPER BOUND: since a job runs on a single workstation, lets be pessimistic and assume that the longest duration will be chosen for each pair job/core
@@ -65,13 +65,13 @@ constraint %% minimize the makespan
 % start time[edge_source] + duration[edge_source] < start time[edge_target]
 constraint 
     forall(i in EDGE) (
-        forall(c in CORE) (
+        forall(c1,c2 in CORE where c1 != c2) (
             let { 
                 var JOB: sj = to_enum(JOB,e[i,1]); % source job
                 var JOB: tj = to_enum(JOB,e[i,2]); % target job
              } in 
-            (s[sj,c] + d[sj,c]) <  
-             s[tj,c]
+             sel[sj,c1]*(s[sj,c1] + d[sj,c1]) <  
+             sel[tj,c2]*s[tj,c2]
         )
     ); 
 
