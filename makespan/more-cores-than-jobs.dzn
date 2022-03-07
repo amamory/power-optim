@@ -1,0 +1,7 @@
+% small model to test when cores are left empty
+
+N_JOBS = 3;
+N_CORES = 4;
+d = [| 3, 4, 2, 5
+     | 3, 1, 2, 5
+     | 3, 1, 2, 5 |];
