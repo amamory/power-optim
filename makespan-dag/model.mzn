@@ -54,20 +54,23 @@ CORE: last = max(CORE);
 array [JOB,CORE] of var 0..total: s;           % start times
 array [JOB,CORE] of var 0..1: sel;             % 1 when the ws is selected to execute the job
 var lb..total: end;                            % total end time, the variable representing the makespan
-
+% aux variable used only to hold the selected initial time and duration for each job
+% this will ease the DAG precedence constraint
+% used[j,1]: initial time
+% used[j,2]: duration
 array [JOB,1..2] of var 0..total: used;
 
 % a job runs on a single workstation
 constraint forall(i in JOB)(
              sum(row(sel,i)) == 1);
 
-constraint %% minimize the makespan
+constraint %% objective: minimize the makespan
     forall(j in CORE) (
         forall(i in JOB) (
             sel[i,j]*(s[i,j] + d[i,j]) <= end)
-    );  
+    );
 
-
+% helper constraint to specify the DAG precedence
 constraint
     forall(i in JOB)(
         forall(j in CORE where sel[i,j] == 1) (
@@ -75,63 +78,18 @@ constraint
         )
     );
 
-constraint 
+% job0 has precedence over job1
+predicate precedence(var int: start0, var int: duration0, var int: start1) =
+  start0 + duration0 <= start1 ;
+
+constraint % the DAG precedence
     forall(i in EDGE) (
         let { 
             var JOB: sj = to_enum(JOB,e[i,1]); % source job
             var JOB: tj = to_enum(JOB,e[i,2]); % target job
             } in 
             precedence (used[sj,1], used[sj,2], used[tj,1])
-    );     
-% check the job precedence indicated in the dag
-% start time[edge_source] + duration[edge_source] < start time[edge_target]
-% constraint 
-%     forall(i in EDGE) (
-%         forall(c1,c2 in CORE where c1 > c2) (
-%             let { 
-%                 var JOB: sj = to_enum(JOB,e[i,1]); % source job
-%                 var JOB: tj = to_enum(JOB,e[i,2]); % target job
-%              } in 
-%              (s[sj,c1] + d[sj,c1]) <  
-%              s[tj,c2]
-%         )
-%     ); 
-
-% https://github.com/MiniZinc/minizinc-benchmarks/blob/master/tc-graph-color/tcgc2.mzn
-% predicate valid_coloring(array [NODES] of var COLORS: coloring, array [EDGES] of NODES: xs, array [EDGES] of NODES: ys) =
-% 	forall (e in EDGES) (coloring[xs[e]] != coloring[ys[e]]);
-
-% job0 has precedence over job1
-predicate precedence(var int: start0, var int: duration0, var int: start1) =
-  start0 + duration0 <= start1 ;
-
-% constraint
-%     forall(c1,c2 in CORE where c1 > c2) (
-%         let { 
-%             var JOB: sj = to_enum(JOB,e[1,1]); % source job
-%             var JOB: tj = to_enum(JOB,e[1,2]); % target job
-%         } in 
-%         precedence (s[sj,c1], d[sj,c1], s[tj,c2])
-%         %(s[sj,c1] + d[sj,c1]) <  s[tj,c2]
-%     );
-% constraint
-%     forall(c1,c2 in CORE where c1 > c2) (
-%         let { 
-%             var JOB: sj = to_enum(JOB,e[2,1]); % source job
-%             var JOB: tj = to_enum(JOB,e[2,2]); % target job
-%         } in 
-%         (s[sj,c1] + d[sj,c1]) <  
-%                 s[tj,c2]
-%     );
-% constraint
-%     forall(c1,c2 in CORE where c1 > c2) (
-%         let { 
-%             var JOB: sj = to_enum(JOB,e[3,1]); % source job
-%             var JOB: tj = to_enum(JOB,e[3,2]); % target job
-%         } in 
-%         (s[sj,c1] + d[sj,c1]) <  
-%                 s[tj,c2]
-%     );
+    );
 
 predicate no_overlap(var int: start0, var int: duration0,
                      var int: start1, var int: duration1) =
@@ -158,9 +116,4 @@ output ["end = \(end)\n"] ++
        [ show_int(digs,used[i,j]) ++ " " ++ 
          if j == 2 then "\n" else "" endif |  
          i in JOB, j in 1..2 
-       ];          
-    %    [
-    %        ( if fix(sel[i,j]) = 1 then show_int(digs,j) ++ ": " ++ show_int(digs,s[i,j]) ++ " " ++ show_int(digs,d[i,j]) ++ "\n" else "" endif ) 
-    %        |i in JOB, j in CORE
-    %    ] ;
-         
+       ];

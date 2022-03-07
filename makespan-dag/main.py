@@ -89,6 +89,7 @@ def main():
         sched_task['name'] = "c"+str(c)
         sched_task['color'] = 'blue'
         sched_task['jobs'] = []
+        sched_task['job_names'] = []
         for j in range(n_jobs):
             start_time=0
             end_time=0
@@ -97,6 +98,7 @@ def main():
                 start_time = out_dict["used"][j][0]
                 end_time = start_time + out_dict["used"][j][1] 
                 sched_task['jobs'].append([start_time,end_time])
+                sched_task['job_names'].append("j"+str(j))
         # sort the jobs in ascending order
         sched_task['jobs'] = sorted(sched_task['jobs'], key=itemgetter(0))
         sched['sched'].append(sched_task)    

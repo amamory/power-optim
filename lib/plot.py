@@ -162,16 +162,17 @@ def plot_gantt(sched, verbose = False):
             list_tasks.append(dict(Task=task['name'], Start=convert_to_datetime(0), 
                     Finish=convert_to_datetime(0), Color = task_color, 
                     # used only by the hover feature
-                    Start_tick = 0, Finish_tick = 0, Duration = 0
+                    JobName = "empty", Start_tick = 0, Finish_tick = 0, Duration = 0
                     ))
         else:
-            for job in task['jobs']:
+            for j, job in enumerate(task['jobs']):
                 list_tasks.append(dict(Core=task['name'], Start=convert_to_datetime(job[0]), 
                     Finish=convert_to_datetime(job[1]), Color = task_color, 
                     # used only by the hover feature
-                    Start_tick = job[0], Finish_tick = job[1], Duration = job[1]-job[0]
+                    JobName = task['job_names'][j], Start_tick = job[0], 
+                    Finish_tick = job[1], Duration = job[1]-job[0]
                     ))
-                max_x = max(max_x,max(job[0],job[1]))
+                max_x = max(max_x,job[1])
 
     # creating the pandas DataFrame requred by plotly
     df = pd.DataFrame(list_tasks)
@@ -184,13 +185,13 @@ def plot_gantt(sched, verbose = False):
 
     fig = px.timeline(df, title = chart_title, x_start="Start", x_end="Finish", color = "Color", y="Core",
         # info used only for the hover feature
-        custom_data = ['Start_tick','Finish_tick','Duration'])
+        custom_data = ['JobName','Start_tick','Finish_tick','Duration'])
     
     fig.update_yaxes(autorange="reversed") # otherwise tasks are listed from the bottom up
 
     # format the data appearing in the mouse hover feature
     fig.update_traces(
-        hovertemplate = "Start:%{customdata[0]}<br>End: %{customdata[1]}<br>Duration: %{customdata[2]}"
+        hovertemplate = "Job name:%{customdata[0]}<br>Start:%{customdata[1]}<br>End: %{customdata[2]}<br>Duration: %{customdata[3]}"
     )
     
     # this part converts dates into ticks
