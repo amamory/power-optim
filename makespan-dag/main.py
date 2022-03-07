@@ -94,8 +94,8 @@ def main():
             end_time=0
             # if the job j has been assigned to core c, then get its start and end times
             if out_dict["sel"][j][c] == 1:
-                start_time = out_dict["s"][j][c]
-                end_time = start_time + d_list[j][c]
+                start_time = out_dict["used"][j][0]
+                end_time = start_time + out_dict["used"][j][1] 
                 sched_task['jobs'].append([start_time,end_time])
         # sort the jobs in ascending order
         sched_task['jobs'] = sorted(sched_task['jobs'], key=itemgetter(0))

@@ -21,6 +21,10 @@
 % http://www.hakank.org/minizinc/tsp.mzn
 % https://github.com/MiniZinc/minizinc-benchmarks/blob/master/maximum-dag/maximum-dag.mzn
 % https://github.com/MiniZinc/minizinc-benchmarks/blob/26bcd0a78433025f7b6896a6fa8caf128795760b/mapping/mesh2x2_1.dzn
+% https://github.com/hakank/hakank/blob/master/minizinc/mvcp.mzn
+
+% shortest path
+% https://github.com/hakank/hakank/blob/master/minizinc/spp.mzn
 
 % NoC model w CPU load
 % https://github.com/MiniZinc/minizinc-benchmarks/blob/master/mapping/mapping.mzn
@@ -51,6 +55,8 @@ array [JOB,CORE] of var 0..total: s;           % start times
 array [JOB,CORE] of var 0..1: sel;             % 1 when the ws is selected to execute the job
 var lb..total: end;                            % total end time, the variable representing the makespan
 
+array [JOB,1..2] of var 0..total: used;
+
 % a job runs on a single workstation
 constraint forall(i in JOB)(
              sum(row(sel,i)) == 1);
@@ -61,19 +67,71 @@ constraint %% minimize the makespan
             sel[i,j]*(s[i,j] + d[i,j]) <= end)
     );  
 
-% check the job precedence indicated in the dag
-% start time[edge_source] + duration[edge_source] < start time[edge_target]
+
+constraint
+    forall(i in JOB)(
+        forall(j in CORE where sel[i,j] == 1) (
+            used[i,1] == s[i,j] /\ used[i,2] == d[i,j] 
+        )
+    );
+
 constraint 
     forall(i in EDGE) (
-        forall(c1,c2 in CORE where c1 != c2) (
-            let { 
-                var JOB: sj = to_enum(JOB,e[i,1]); % source job
-                var JOB: tj = to_enum(JOB,e[i,2]); % target job
-             } in 
-             sel[sj,c1]*(s[sj,c1] + d[sj,c1]) <  
-             sel[tj,c2]*s[tj,c2]
-        )
-    ); 
+        let { 
+            var JOB: sj = to_enum(JOB,e[i,1]); % source job
+            var JOB: tj = to_enum(JOB,e[i,2]); % target job
+            } in 
+            precedence (used[sj,1], used[sj,2], used[tj,1])
+    );     
+% check the job precedence indicated in the dag
+% start time[edge_source] + duration[edge_source] < start time[edge_target]
+% constraint 
+%     forall(i in EDGE) (
+%         forall(c1,c2 in CORE where c1 > c2) (
+%             let { 
+%                 var JOB: sj = to_enum(JOB,e[i,1]); % source job
+%                 var JOB: tj = to_enum(JOB,e[i,2]); % target job
+%              } in 
+%              (s[sj,c1] + d[sj,c1]) <  
+%              s[tj,c2]
+%         )
+%     ); 
+
+% https://github.com/MiniZinc/minizinc-benchmarks/blob/master/tc-graph-color/tcgc2.mzn
+% predicate valid_coloring(array [NODES] of var COLORS: coloring, array [EDGES] of NODES: xs, array [EDGES] of NODES: ys) =
+% 	forall (e in EDGES) (coloring[xs[e]] != coloring[ys[e]]);
+
+% job0 has precedence over job1
+predicate precedence(var int: start0, var int: duration0, var int: start1) =
+  start0 + duration0 <= start1 ;
+
+% constraint
+%     forall(c1,c2 in CORE where c1 > c2) (
+%         let { 
+%             var JOB: sj = to_enum(JOB,e[1,1]); % source job
+%             var JOB: tj = to_enum(JOB,e[1,2]); % target job
+%         } in 
+%         precedence (s[sj,c1], d[sj,c1], s[tj,c2])
+%         %(s[sj,c1] + d[sj,c1]) <  s[tj,c2]
+%     );
+% constraint
+%     forall(c1,c2 in CORE where c1 > c2) (
+%         let { 
+%             var JOB: sj = to_enum(JOB,e[2,1]); % source job
+%             var JOB: tj = to_enum(JOB,e[2,2]); % target job
+%         } in 
+%         (s[sj,c1] + d[sj,c1]) <  
+%                 s[tj,c2]
+%     );
+% constraint
+%     forall(c1,c2 in CORE where c1 > c2) (
+%         let { 
+%             var JOB: sj = to_enum(JOB,e[3,1]); % source job
+%             var JOB: tj = to_enum(JOB,e[3,2]); % target job
+%         } in 
+%         (s[sj,c1] + d[sj,c1]) <  
+%                 s[tj,c2]
+%     );
 
 predicate no_overlap(var int: start0, var int: duration0,
                      var int: start1, var int: duration1) =
@@ -91,13 +149,18 @@ solve minimize end;
 output ["end = \(end)\n"] ++
        ["ub = \(total)\n"] ++
        ["lb = \(lb)\n"] ++
-       ["------------\n"] ++
+       ["selected cores:\n"] ++
        [ show_int(digs,sel[i,j]) ++ " " ++ 
          if j == last then "\n" else "" endif |
-         i in JOB, j in CORE ] ++
-       ["------------\n"] ++ 
-       [
-           ( if fix(sel[i,j]) = 1 then show_int(digs,j) ++ ": " ++ show_int(digs,s[i,j]) ++ " " ++ show_int(digs,d[i,j]) ++ "\n" else "" endif ) 
-           |i in JOB, j in CORE
-       ] ;
+         i in JOB, j in CORE 
+       ] ++
+       ["start_time, duration\n"] ++ 
+       [ show_int(digs,used[i,j]) ++ " " ++ 
+         if j == 2 then "\n" else "" endif |  
+         i in JOB, j in 1..2 
+       ];          
+    %    [
+    %        ( if fix(sel[i,j]) = 1 then show_int(digs,j) ++ ": " ++ show_int(digs,s[i,j]) ++ " " ++ show_int(digs,d[i,j]) ++ "\n" else "" endif ) 
+    %        |i in JOB, j in CORE
+    %    ] ;
          
