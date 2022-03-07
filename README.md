@@ -16,7 +16,10 @@ $ pip install -r requirements.txt
 
 ## Models
 
-Browse the directories to try each model.
+Browse the directories to try each model. The suggested order in terms of complexity:
+ - `makespan`: jobs without precedence constraint;
+ - `makespan-dag`: similar to the previous one but jobs have precedence constraints represented by a DAG;
+ - `deadline-dag`: almost equal to the previous one, but it includes an additional deadline constraint.
 
 ## Authors
 
