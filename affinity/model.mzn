@@ -48,10 +48,6 @@ var lb..ub_p: total_energy;                    % the variable representing the t
 % used[j,2]: duration
 % used[j,3]: energy
 array [JOB,1..3] of var 0..max_int: used;
-% the affinity is derived from the duration matrix 'd'. 
-% If d[i,j] == 0, then the job 'i' should not placed in core 'j'
-%array [JOB,CORE] of var 0..1: affinity;        % 1 when it is possible to assign a job to this core
-
 % deadline constraint: makespan (end) must be shorter or equal to the deadline (D)
 constraint end <= D;
 
@@ -61,13 +57,6 @@ constraint
         sum(row(sel,i)) == 1
     );
 
-% set the affinity matrix
-% constraint
-%     forall(j in CORE) (
-%         forall(i in JOB) (
-%             affinity[i,j] = bool2int(d[i,j] != 0)
-%         )
-%     );
 % can only assign jobs to cores if its affinity says so.
 % It means, the duration is not zero since d[i,j]==0 means not affinity
 constraint 
@@ -77,13 +66,13 @@ constraint
        )
     );
 
-
 constraint %% define the makespan
     forall(j in CORE) (
         forall(i in JOB) (
             sel[i,j]*(s[i,j] + d[i,j]) <= end)
     );
 
+% the objective to be minimized
 constraint total_energy = sum(col(used,3));
 
 % helper constraint to specify the DAG precedence
