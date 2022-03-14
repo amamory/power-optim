@@ -21,7 +21,8 @@ Browse the directories to try each model. The suggested order in terms of comple
  - `makespan-dag`: similar to the previous one but jobs have precedence constraints represented by a DAG;
  - `deadline-dag`: almost equal to the previous one, but it includes an additional deadline constraint;
  - `deadline-power`: while the previous one minimizes the makespan, this one minizes the power as long as the deadline is respected;
- - `affinity`: this model is built on top of the previous one, but adding affinity constraint.
+ - `affinity`: this model is built on top of the previous one, but adding affinity constraint;
+ - `pu-utilization`: this model is built on top of the previous one, but including *task period* and *processing unit utilization* constraint. **TODO**.
 
 ## Authors
 

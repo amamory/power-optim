@@ -7,8 +7,7 @@
 %   d[i,j] == 0, then the job 'i' should not placed in core 'j' 
 
 % Objective:
-% - minimize the makespan (end) and satify the deadline
-
+% - minimize the energy (total_energy)
 
 % MAIN DEFINITIONS
 int : N_JOBS;

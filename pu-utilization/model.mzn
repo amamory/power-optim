@@ -1,35 +1,11 @@
-% The set of jobs (JOB) with  predence constraints modeled as a DAG,
-% must be schedule on any of hw processing units (PU) represented by set CORE|.
-% The jobs have a duration (d). 
-% makespan <= deadline. 
-% These hw PUs can be heterogeneous, meaning that for each job j in JOB, c1 and c2 in CORE, 
-% the duration d[j,c1] can be different from d[j,c2]. Like, for example, in ARM bigLittle processors.
+% This model is built on top of the `affinity` model, but including 
+% **task period** and **processing unit utilization** constraint.
 
-% Constraints:
-% - a core can only run one job at a time
-% - a job run once in a single core 
-% - a job cannot be preempted
-% - a job can only execute when all its preceeding jobs were executed
-% - makespan <= deadline
+% Additional Constraints:
+% - 
 
 % Objective:
-% - minimize the energy (total_energy)
-
-%https://en.wikipedia.org/wiki/Open-shop_scheduling
-%https://www.minizinc.org/doc-2.5.3/en/downloads/jobshop.mzn
-%https://github.com/MiniZinc/minizinc-benchmarks/blob/master/openshop/openshop.mzn
-
-% modeling graphs and dags
-% http://www.hakank.org/minizinc/tsp.mzn
-% https://github.com/MiniZinc/minizinc-benchmarks/blob/master/maximum-dag/maximum-dag.mzn
-% https://github.com/MiniZinc/minizinc-benchmarks/blob/26bcd0a78433025f7b6896a6fa8caf128795760b/mapping/mesh2x2_1.dzn
-% https://github.com/hakank/hakank/blob/master/minizinc/mvcp.mzn
-
-% shortest path
-% https://github.com/hakank/hakank/blob/master/minizinc/spp.mzn
-
-% NoC model w CPU load
-% https://github.com/MiniZinc/minizinc-benchmarks/blob/master/mapping/mapping.mzn
+% - minimize the processing unit utiliziation
 
 % MAIN DEFINITIONS
 int : N_JOBS;
@@ -42,6 +18,7 @@ enum CORE = anon_enum(N_CORES);
 array [JOB,CORE] of int: d;                   % task durations
 array [JOB,CORE] of int: p;                   % job energy
 array [1..N_EDGES,1..2] of 1..N_JOBS: e;      % the DAG edges: source node to target node
+array [JOB] of int: Period;                   % task min inter-arrival periods (equal to deadlines)
 
 % BOUNDS FOR MAKESPAN 
 % UPPER BOUND: since a job runs on a single workstation, lets be pessimistic and assume that the longest duration will be chosen for each pair job/core
@@ -70,12 +47,26 @@ var lb..ub_p: total_energy;                    % the variable representing the t
 % used[j,3]: energy
 array [JOB,1..3] of var 0..max_int: used;
 
+var 0.0 .. 1.0 : max_util;                      % max utilization among cores
+
+
 % deadline constraint: makespan (end) must be shorter or equal to the deadline (D)
 constraint end <= D;
 
 % a job runs on a single workstation
-constraint forall(i in JOB)(
-             sum(row(sel,i)) == 1);
+constraint 
+    forall(i in JOB)(
+        sum(row(sel,i)) == 1
+    );
+
+% can only assign jobs to cores if its affinity says so.
+% It means, the duration is not zero since d[i,j]==0 means not affinity
+constraint 
+    forall(j in CORE) (
+       forall(i in JOB)(
+            sel[i,j] == 1 -> d[i,j] != 0
+       )
+    );
 
 constraint %% define the makespan
     forall(j in CORE) (
@@ -83,7 +74,12 @@ constraint %% define the makespan
             sel[i,j]*(s[i,j] + d[i,j]) <= end)
     );
 
-constraint total_energy = sum(col(used,3));
+% the objective to be minimized
+ constraint total_energy = sum(col(used,3));
+
+% a core hosts tasks up to its maximum utilization of 1.0
+constraint forall(j in CORE)(
+             sum(i in JOB)(int2float(sel[i,j])*d[i,j]/int2float(Period[i])) <= max_util);
 
 % helper constraint to specify the DAG precedence
 constraint
@@ -117,12 +113,16 @@ constraint %% ensure no overlap of tasks
         )
     );
 
-solve minimize total_energy;
+% choose one of the possible optimization functions
+solve minimize end; % makespan
+%solve minimize total_energy; % energy
+%solve minimize max_util; % PU utilization
 
 output ["end = \(end)\n"] ++
        ["ub = \(total)\n"] ++
        ["lb = \(lb)\n"] ++
        ["energy = \(total_energy)\n"] ++
+       ["util = \(max_util)\n"] ++
        ["selected cores:\n"] ++
        [ show_int(digs,sel[i,j]) ++ " " ++ 
          if j == last then "\n" else "" endif |
