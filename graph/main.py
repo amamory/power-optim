@@ -127,11 +127,19 @@ for t in range(len(deploy_mat)):
     deploy_mat[t][pu] = 1
     pu = (pu + 1) % total_pus
 
+print ('deploy_mat:')
+for i in range(len(deploy_mat)):
+    print (deploy_mat[i])
+
 # y_s,m: init the freq assigned to a island
 freq_mat = [ [0]*max_n_freq for i in range(len(islands))]
 # assign each island to the minimal freq
 for f in range(len(freq_mat)):
     freq_mat[f][0] = 1
+
+print ('freq_mat:')
+for i in range(len(freq_mat)):
+    print (freq_mat[i])
 
 unrelated = [
     [ 0 ], 
@@ -179,27 +187,27 @@ def get_island(p):
 
 
 
-# task i, processing unit p, operating performance points (freq) m
-def calc_wcet(i,p,m) -> int:
-    wcet_ns = G.nodes[i]['wcet_ns']
-    wcet = G.nodes[i]['wcet']
+# task t, processing unit p, operating performance points (freq) m
+def calc_wcet(t,p,m) -> int:
+    wcet_ns = G.nodes[t]['wcet_ns']
+    wcet = G.nodes[t]['wcet']
     i = get_island(p)
     f_ref = max(islands[i]['freqs'])
 
-    # get the index when the value == 1
+    # get the index when the value == 1. get the freqs of an island i
     res = [x for x in range(len(freq_mat[i])) if freq_mat[i][x] == 1] 
     print (res)
     if len(res) != 1:
         print('ERROR: expecting size 1')
         sys.exit(0)
     f = islands[i]['freqs'][res[0]]
-    capacity = 1.0 # TODO
+    capacity = islands[i]['capacity'] # TODO
     print (wcet_ns,wcet,capacity,f,f_ref)
 
-    return wcet_ns + capacity * (wcet-wcet_ns)/f * f_ref
+    return wcet_ns + (capacity * (wcet-wcet_ns)/f * f_ref)
 
-new_wcet = calc_wcet(0,0,0)
-print (new_wcet)
+# new_wcet = calc_wcet(0,0,0)
+# print (new_wcet)
 
 
 # return whether the pu was overloaded or not
@@ -213,13 +221,52 @@ def pu_utilization(p) -> boolean:
         new_wcet = calc_wcet(t,p,0)
         deadline = G.nodes[t]['rel_deadline']
         utilization = utilization + (float(new_wcet)/float(deadline))
+    print (deployed_tasks, new_wcet, deadline, utilization)
     if utilization > 1.0:
         print ('WARNING: pu', p, 'has exeeded the utilization in', utilization)
-        print (deployed_tasks, new_wcet, deadline, utilization)
         return False
     else:
         return True
 
 pu_u = pu_utilization(0)
-print (pu_u)
+print (pu_utilization(0))
+print (pu_utilization(1))
+# switching from the lowest freq to the 2nd lowest freq
+freq_mat[0][0] = 0
+freq_mat[0][1] = 1
+print (pu_utilization(0))
+print (pu_utilization(1))
+# switching from the lowest freq to the 2nd lowest freq
+freq_mat[0][1] = 0
+freq_mat[0][2] = 1
+print (pu_utilization(0))
+print (pu_utilization(1))
+# the 
+print (pu_utilization(2))
+print (pu_utilization(3))
 
+
+
+# return power consumed by the pu p
+def pu_power(p) -> float:
+    # get the index of the tasks deployed in PU p
+    deployed_tasks = [x for x in range(len(deploy_mat)) if deploy_mat[x][p] == 1] 
+    
+    i = get_island(p)
+    print ('p:',p,i)
+    busy_power = islands[i]['busy_power']
+    idle_power = islands[i]['idle_power']
+
+    utilization = 0.0
+    z=1
+    activation_period = G.graph['activation_period']
+    for t in deployed_tasks:
+        new_wcet = calc_wcet(t,p,0)
+        # TODO get z
+        utilization = utilization + (z*float(new_wcet)/float(activation_period))
+    print (deployed_tasks, new_wcet, z, activation_period, utilization)
+
+    return idle_power + (busy_power-idle_power) * utilization
+
+for p in range(total_pus):
+    print ('power:', pu_power(p))
