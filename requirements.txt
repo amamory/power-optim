@@ -1,4 +1,6 @@
 pandas
+networkx
+scipy
 numpy
 pyyaml
 plotly
