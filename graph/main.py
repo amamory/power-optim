@@ -114,7 +114,7 @@ island3['capacity'] = 0.5
 island3['n_pus'] = 2
 island3['busy_power'] = 50
 island3['idle_power'] = 5
-island3['freqs'] = [100, 200, 300]
+island3['freqs'] = [100, 200]
 islands.append(island3)
 
 
