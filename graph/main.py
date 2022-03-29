@@ -298,10 +298,6 @@ n_freqs_per_island = [len(i['freqs']) for i in islands]
 # index to the current freq in each island
 # initialize them to the minimal freq, which is ALWAYS the first one
 freqs_per_island_idx = [0]* len(islands)
-# points to the island currently changing its freq
-island_idx = 0
-# points to the last island visited so far
-last_visited_island_idx = 0
 # number of islands ... to avoid using len(islands) in the middle of the optim algo
 n_islands = len(islands)
 
@@ -314,43 +310,31 @@ def run_minizinc()-> bool:
     return False
 
 def inc_island_idx() -> bool:
-    the_end = True
+    # points to the last incremented island
     inced = 0
     for i in range(n_islands):
-        # if island idx i is pointing to its max freq
+        # if island idx i is not pointing to its max freq, then point to the next higher freq of this island
         if freqs_per_island_idx[i] < (n_freqs_per_island[i]-1):
             freqs_per_island_idx[i] = freqs_per_island_idx[i] +1
             inced = i
             break
         else:
+            # if this is not the last island, then go to the next island to increment its freq
             if i >= (n_islands-1):
-                the_end = False
+                
                 return False
-    
+    # all island before the last incremented island must start over at their lowest freq
     for i in range(inced):
         freqs_per_island_idx[i] = 0
     return True
-
-# running = True
-# while running:
-#     print ('searched freqs:')
-#     for idx, i in enumerate(islands):
-#         print (i['freqs'][freqs_per_island_idx[idx]])
-#     running = inc_island_idx()
-
-# sys.exit(1)
 
 # stop running until a feasible solution is found or
 # until all the island freqs where tested. In this case, it means no solution is possible
 running = True
 feasible = False
 while running and not feasible:
-    print ('current island:',island_idx, 'freq idx:', freqs_per_island_idx[island_idx])
     print ('searched freqs:')
     for idx, i in enumerate(islands):
-        # print ('i:',idx)
-        # print (freqs_per_island_idx)
-        # print (freqs_per_island_idx[idx])
         print (i['freqs'][freqs_per_island_idx[idx]])
     print (freqs_per_island_idx)
     create_minizinc_model()
@@ -360,61 +344,5 @@ while running and not feasible:
         # stop when all the island are already at the max frequency
         running = inc_island_idx()
 
-        # if the max freq of the current island was alerady tested, then go to the next island
-        # and 
-        if freqs_per_island_idx[island_idx] >= (n_freqs_per_island[island_idx]-1):
-            if island_idx == last_visited_island_idx:
-                if island_idx+1 >= n_islands:
-                    # no solution
-                    # no feasiable solution was found :(
-                    # this means that the deadline is not feasible for the current set of tasks and processing units
-                    # running = False
-                    print ('no feasiable solution was found :(')
-                    break
-                else:
-                    # try increasing the freq of the next island ...
-                    last_visited_island_idx = last_visited_island_idx + 1
-                    freqs_per_island_idx[last_visited_island_idx] = freqs_per_island_idx[last_visited_island_idx] + 1
-                    # while the preceeding islands return to their respective minimal frequencies
-                    for i in range(last_visited_island_idx):
-                        freqs_per_island_idx[i] = 0
-                    # and return to the initial island to start searching all over againg
-                    island_idx = 0
-            else:
-                # try increasing the freq of the next island ...
-                island_idx = island_idx + 1
-                freqs_per_island_idx[island_idx] = freqs_per_island_idx[island_idx] + 1
-                # while the preceeding islands return to their respective minimal frequencies
-                for i in range(island_idx):
-                    freqs_per_island_idx[i] = 0
-                # and return to the initial island to start searching all over againg
-                island_idx = 0
-            # freqs_per_island_idx[island_idx] = freqs_per_island_idx[island_idx] + 1
-
-            # # when all islands are on their max freq, then it's the end. Not solution was found
-            # the_end = True
-            # for i in range(n_islands):
-            #     # if island i is pointing to its max freq
-            #     if freqs_per_island_idx[i] < (n_freqs_per_island[i]-1):
-            #         the_end = False
-            #         break
-            # # when the last island is already at its max 
-            # print (the_end, island_idx)
-            # if island_idx >= n_islands and the_end:
-            #     # no feasiable solution was found :(
-            #     # this means that the deadline is not feasible for the current set of tasks and processing units
-            #     running = False
-            #     print ('no feasiable solution was found :(')
-            # else:
-            #     # while the preceeding islands return to their respective minimal frequencies
-            #     for i in range(island_idx):
-            #         freqs_per_island_idx[i] = 0
-            #     # and return to the initial island to start searching all over againg
-        else:
-            # try increasing the freq of the current island
-            freqs_per_island_idx[island_idx] = freqs_per_island_idx[island_idx] + 1
-
-    else:
-        #solution found
-        print ('solution found')
-        running = False
+if not running:
+    print ('no feasiable solution was found :(')
