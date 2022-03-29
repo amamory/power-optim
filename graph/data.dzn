@@ -1,0 +1,50 @@
+N_TASKS = 5;
+N_ISLANDS = 2;
+N_DAGS = 1;
+% the deadline
+D = 1000;
+
+% List of islands I of size N_ISLANDS. An island i in I has:
+% - # of processing units
+% - busy power consumption
+% - idle power consumption
+% - the frequency it runs
+I = [| 2, 100, 20, 100
+     | 2,  20,  2, 50
+     | 2,  50,  5, 100
+];
+
+% the capacity (0.0, 1.0] of each island
+I_cap = [ 1.0, 0,2, 0,5];
+
+% points to the island each core belongs
+I_idx = [1,1,2,2,3,3]
+
+% Yet related to islands. An island also have a finite list of frequencies to assign to itself
+% I_f = [
+%     | 100, 500, 1000
+%     | 50, 100, 200
+%     | 100, 200, 300
+%     ];
+
+% List of DAGs G of size N_DAGS. A DAG g in G has:
+% - an activation_period
+% - a deadline
+% - a reference frequency used by its tasks
+G = [ | 50, 100, 1000
+    ];
+
+% List of tasks T of size N_TASKS. A task t in T has: 
+% - wcet at the reference freq
+% - time spent in the non scalable part
+T = [ | 10, 3
+      | 10, 3
+      | 10, 3
+      | 10, 3
+      | 10, 3
+      | 10, 3
+      | 10, 3
+      | 10, 3
+      | 10, 3
+      | 10, 3
+    ];

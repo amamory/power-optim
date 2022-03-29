@@ -5,8 +5,11 @@ import pandas as pd
 
 # Ignored constraints:
 # - affinity constraints
+# - update rel_deadline every time an island freq change
 # - only one dag
+# - precedence constraint is ignored
 # - no gpu or fpga
+# - how to get z ?
 
 # % from: the leaving node for each edge
 # % to: the entering node for each edge
@@ -66,18 +69,18 @@ print ('node names:',node_names)
 wcet = [10 for x in range(len(node_names))]
 wcet_ns = [3 for x in range(len(node_names))]
 rel_deadline = [x*3 for x in wcet]
-island = [0 for x in range(len(node_names))]
-proc = [0 for x in range(len(node_names))]
-nodes_attrib = [1 for x in range(len(node_names))]
+# island = [0 for x in range(len(node_names))]
+# proc = [0 for x in range(len(node_names))]
+# nodes_attrib = [1 for x in range(len(node_names))]
 
 nodeData = pd.DataFrame({'name' : node_names,
                   'wcet' : wcet,     # wcet at the reference freq
                   'wcet_ns' : wcet_ns,
-                  'rel_deadline': rel_deadline,
-                  'island': island,  # decision variables
-                  'proc': proc,      # decision variables
-                  'arrival_time': nodes_attrib,
-                  'finish_time': nodes_attrib
+                  'rel_deadline': rel_deadline
+                #   'island': island,  # decision variables
+                #   'proc': proc,      # decision variables
+                #   'arrival_time': nodes_attrib,
+                #   'finish_time': nodes_attrib
                   })
 
 G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
@@ -87,6 +90,9 @@ nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
 
 G.graph['activation_period'] = 50
 G.graph['deadline'] = 100
+# the reference freq is the freq of the 1st island at its highest freq
+# considering which island ?!?!? let us say it's the 1st island of the list of islands
+G.graph['ref_freq'] = 1000
 
 sparse_adj_mat = nx.adjacency_matrix(G)
 array_adj_mat = sparse_adj_mat.toarray('C')
@@ -114,7 +120,7 @@ island3['capacity'] = 0.5
 island3['n_pus'] = 2
 island3['busy_power'] = 50
 island3['idle_power'] = 5
-island3['freqs'] = [100, 200]
+island3['freqs'] = [100, 200, 300]
 islands.append(island3)
 
 
@@ -192,8 +198,6 @@ def get_island(p):
     
     print ('ERROR: should never reach here', p)
     sys.exit(0)
-    
-
 
 
 # task t, processing unit p, operating performance points (freq) m
@@ -201,7 +205,8 @@ def calc_wcet(t,p,m) -> int:
     wcet_ns = G.nodes[t]['wcet_ns']
     wcet = G.nodes[t]['wcet']
     i = get_island(p)
-    f_ref = max(islands[i]['freqs'])
+    # that's somehow arbitrary definition
+    f_ref = G.graph['ref_freq']
 
     # get the index when the value == 1. get the freqs of an island i
     res = [x for x in range(len(freq_mat[i])) if freq_mat[i][x] == 1] 
@@ -210,14 +215,15 @@ def calc_wcet(t,p,m) -> int:
         print('ERROR: expecting size 1')
         sys.exit(0)
     f = islands[i]['freqs'][res[0]]
-    capacity = islands[i]['capacity'] # TODO
+    capacity = islands[i]['capacity']
     print (wcet_ns,wcet,capacity,f,f_ref)
 
     return wcet_ns + (capacity * (wcet-wcet_ns)/f * f_ref)
 
-# new_wcet = calc_wcet(0,0,0)
-# print (new_wcet)
-
+print (calc_wcet(0,0,0))
+print (calc_wcet(0,2,0))
+print (calc_wcet(0,4,0))
+sys.exit(1)
 
 # return whether the pu was overloaded or not
 def pu_utilization(p) -> boolean:
@@ -228,6 +234,7 @@ def pu_utilization(p) -> boolean:
     utilization = 0.0
     for t in deployed_tasks:
         new_wcet = calc_wcet(t,p,0)
+        # TODO rel_deadline must be updated every time an island freq change
         deadline = G.nodes[t]['rel_deadline']
         utilization = utilization + (float(new_wcet)/float(deadline))
     print (deployed_tasks, new_wcet, deadline, utilization)
@@ -245,11 +252,11 @@ freq_mat[0][0] = 0
 freq_mat[0][1] = 1
 print (pu_utilization(0))
 print (pu_utilization(1))
-# switching from the lowest freq to the 2nd lowest freq
-freq_mat[0][1] = 0
-freq_mat[0][2] = 1
-print (pu_utilization(0))
-print (pu_utilization(1))
+# # switching from the lowest freq to the 2nd lowest freq
+# freq_mat[0][1] = 0
+# freq_mat[0][2] = 1
+# print (pu_utilization(0))
+# print (pu_utilization(1))
 # the 
 print (pu_utilization(2))
 print (pu_utilization(3))
@@ -280,6 +287,9 @@ def pu_power(p) -> float:
 for p in range(total_pus):
     print ('power:', pu_power(p))
 
+#
+# Heusristic 
+#
 
 # sort the islands by idle_power
 islands = sorted(islands, key = lambda ele: ele['idle_power'])
@@ -305,7 +315,7 @@ n_islands = len(islands)
 def create_minizinc_model():
     pass
 
-#TODO
+# TODO
 def run_minizinc()-> bool:
     return False
 
