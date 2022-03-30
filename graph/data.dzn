@@ -1,6 +1,7 @@
-N_TASKS = 5;
+N_TASKS = 10;
 N_ISLANDS = 2;
 N_DAGS = 1;
+N_EDGES = 15;
 % the deadline
 D = 1000;
 
@@ -17,7 +18,7 @@ I = [| 2, 100, 20, 100
 % the capacity (0.0, 1.0] of each island
 I_cap = [ 1.0, 0,2, 0,5];
 
-% points to the island each core belongs
+% it points to the island each core belongs
 I_idx = [1,1,2,2,3,3]
 
 % Yet related to islands. An island also have a finite list of frequencies to assign to itself
@@ -37,14 +38,48 @@ G = [ | 50, 100, 1000
 % List of tasks T of size N_TASKS. A task t in T has: 
 % - wcet at the reference freq
 % - time spent in the non scalable part
-T = [ | 10, 3
-      | 10, 3
-      | 10, 3
-      | 10, 3
-      | 10, 3
-      | 10, 3
-      | 10, 3
-      | 10, 3
-      | 10, 3
-      | 10, 3
+% - relative deadline <===== TODO
+T = [ | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
+      | 10, 3, 31
     ];
+
+% wcet for each task assuming each core
+% these are calculated a priori
+C = [ | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+      | 73, 73, 31, 31, 38, 38
+    ];
+
+% from: the leaving node for each edge
+% to: the entering node for each edge
+% list of edges indicating which nodes are connected
+E =  [| 0,1
+      | 0,2
+      | 0,3
+      | 1,4
+      | 2,4
+      | 2,5
+      | 3,5
+      | 3,8
+      | 4,6
+      | 4,7
+      | 4,8
+      | 5,7
+      | 6,9
+      | 7,9
+      | 8,9 |]; 

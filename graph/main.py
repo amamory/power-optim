@@ -210,19 +210,23 @@ def calc_wcet(t,p,m) -> int:
 
     # get the index when the value == 1. get the freqs of an island i
     res = [x for x in range(len(freq_mat[i])) if freq_mat[i][x] == 1] 
-    print (res)
+    #print (res)
     if len(res) != 1:
         print('ERROR: expecting size 1')
         sys.exit(0)
     f = islands[i]['freqs'][res[0]]
     capacity = islands[i]['capacity']
-    print (wcet_ns,wcet,capacity,f,f_ref)
+    #print (wcet_ns,wcet,capacity,f,f_ref)
 
     return wcet_ns + (capacity * (wcet-wcet_ns)/f * f_ref)
 
-print (calc_wcet(0,0,0))
-print (calc_wcet(0,2,0))
-print (calc_wcet(0,4,0))
+for i in range(len(node_names)):
+    wcets = [
+            int(calc_wcet(i,0,0)), int(calc_wcet(i,0,0)), 
+            int(calc_wcet(i,2,0)), int(calc_wcet(i,2,0)), 
+            int(calc_wcet(i,4,0)), int(calc_wcet(i,4,0))
+            ]
+    print ('task:', i , 'wcets:', wcets)
 sys.exit(1)
 
 # return whether the pu was overloaded or not
