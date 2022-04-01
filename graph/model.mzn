@@ -45,6 +45,7 @@ constraint
             forall(c in 1..total_cores)(
                 sum(int2float(sel[t][c]*C[t][c])/int2float(p)) <= 1.0
             )
+            % TODO replace p by relative deadline
         )
     );
 % #####################################

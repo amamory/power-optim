@@ -32,13 +32,13 @@ I_idx = [1,1,2,2,3,3]
 % - an activation_period
 % - a deadline
 % - a reference frequency used by its tasks
-G = [ | 50, 100, 1000
+G = [ | 100, 100, 1000
     ];
 
 % List of tasks T of size N_TASKS. A task t in T has: 
 % - wcet at the reference freq
 % - time spent in the non scalable part
-% - relative deadline <===== TODO
+% - relative deadline <===== TODO change it according to the selected 
 T = [ | 10, 3, 31
       | 10, 3, 31
       | 10, 3, 31

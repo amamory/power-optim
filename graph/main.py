@@ -71,12 +71,14 @@ wcet_ns = [3 for x in range(len(node_names))]
 rel_deadline = [x*3 for x in wcet]
 # island = [0 for x in range(len(node_names))]
 # proc = [0 for x in range(len(node_names))]
-# nodes_attrib = [1 for x in range(len(node_names))]
+nodes_attrib = [1 for x in range(len(node_names))]
+nodes_attrib[3] = 15
 
 nodeData = pd.DataFrame({'name' : node_names,
-                  'wcet' : wcet,     # wcet at the reference freq
-                  'wcet_ns' : wcet_ns,
-                  'rel_deadline': rel_deadline
+                  'wcet_ref' : wcet,     # wcet at the reference freq
+                  'wcet_ref_ns' : wcet_ns,
+                  'rel_deadline': rel_deadline,
+                  'wcet': nodes_attrib # decision variables
                 #   'island': island,  # decision variables
                 #   'proc': proc,      # decision variables
                 #   'arrival_time': nodes_attrib,
@@ -88,7 +90,7 @@ G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
 nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
 
 
-G.graph['activation_period'] = 50
+G.graph['activation_period'] = 100
 G.graph['deadline'] = 100
 # the reference freq is the freq of the 1st island at its highest freq
 # considering which island ?!?!? let us say it's the 1st island of the list of islands
@@ -102,7 +104,7 @@ islands = []
 island1 = {}
 island1['capacity'] = 1.0
 island1['n_pus'] = 2
-island1['busy_power'] = 100
+island1['busy_power'] = 100 # TODO review grabriele's paper to get the funtion of power compared to freq
 island1['idle_power'] = 20
 island1['freqs'] = [100, 500, 1000]
 islands.append(island1)
@@ -202,8 +204,8 @@ def get_island(p):
 
 # task t, processing unit p, operating performance points (freq) m
 def calc_wcet(t,p,m) -> int:
-    wcet_ns = G.nodes[t]['wcet_ns']
-    wcet = G.nodes[t]['wcet']
+    wcet_ns = G.nodes[t]['wcet_ref_ns']
+    wcet = G.nodes[t]['wcet_ref']
     i = get_island(p)
     # that's somehow arbitrary definition
     f_ref = G.graph['ref_freq']
@@ -227,7 +229,7 @@ for i in range(len(node_names)):
             int(calc_wcet(i,4,0)), int(calc_wcet(i,4,0))
             ]
     print ('task:', i , 'wcets:', wcets)
-sys.exit(1)
+#sys.exit(1)
 
 # return whether the pu was overloaded or not
 def pu_utilization(p) -> boolean:
@@ -323,6 +325,7 @@ def create_minizinc_model():
 def run_minizinc()-> bool:
     return False
 
+# TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
 def inc_island_idx() -> bool:
     # points to the last incremented island
     inced = 0
@@ -346,17 +349,110 @@ def inc_island_idx() -> bool:
 # until all the island freqs where tested. In this case, it means no solution is possible
 running = True
 feasible = False
-while running and not feasible:
-    print ('searched freqs:')
-    for idx, i in enumerate(islands):
-        print (i['freqs'][freqs_per_island_idx[idx]])
-    print (freqs_per_island_idx)
-    create_minizinc_model()
-    feasible = run_minizinc()
-    if not feasible:
-        # increase the island freq and try the model again
-        # stop when all the island are already at the max frequency
-        running = inc_island_idx()
+# place all tasks in the lowest capacity island. Assuming the island were already sorted by capacity
+task_placement = [0*len(node_names)]
+# sort tasks in increasing wcet_ref
+# the scalable and non scalable parts are added
+wcet_ref_summed_up = [wcet[i]+wcet_ns[i] for i in range(len(node_names))]
+
+# take the first element for sort
+def take_first(elem):
+    return elem[0]
+
+# get the task indexes such that these indexes are sorted by wcet_ref
+# for instance, [3,4,2,5,2,6,1] returns [6,2,4,0,1,3,5]
+def sort_task_and_return_idx(wcet):
+    # add the 'visited' tag to each value by creating a touple (int,bool)
+    wcet_tagged = [(wcet[i],False) for i in range(len(wcet))]
+    wcet_sorted = sorted(wcet_tagged,key=take_first)
+    # the result to be returned
+    sorted_idx = []
+    while(len(wcet_sorted)>0):
+        # get the position where the lowest value can be found
+        idx = -1
+        for i in range(len(wcet_tagged)):
+            if wcet_tagged[i][0] == wcet_sorted[0][0] and not wcet_tagged[i][1]:
+                idx = i
+                # mark as visited before
+                wcet_tagged[i] = (wcet_tagged[i][0],True)
+                break
+        if idx < 0:
+            print ("ERROR: check the function 'sort_task_and_return_idx'")
+            sys.exit(1)
+        sorted_idx.append(idx)
+        # delete the 1st node and continue until this list is empty
+        wcet_sorted = wcet_sorted[1:]
+    
+    return sorted_idx
+
+# testing = [3,4,2,5,2,6,1]
+# testing_sorted = sort_task_and_return_idx(testing)
+# print (testing)
+# print (testing_sorted)
+
+
+wcet_list = [0]* len(node_names)
+
+# def define_wcet():
+#     wcet_list = []
+#     for t in range(len(node_names)):
+#         # TODO get its island
+#         wcet = calc_wcet(t,i,0)
+#         wcet_list.append(wcet)
+
+
+def define_rel_deadlines(G):
+    # main steps:   
+    # 1) find the critial path in the dag, i.e., the path with longest wcet for each node    
+    # 2) assign deadline to all nodes in the critial path proportionally to its wcet
+    # 3) assign the deadline for the reamaning nodes
+
+    ####################
+    # 1) find the critial path in the dag, i.e., the path with longest wcet for each node    
+    ####################
+    
+    # deep copy the DAG
+    H = G.copy()
+
+    # get max weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
+    max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
+    print ("MAX:", max_weight)
+
+    # assign the edge weight as the sum of the node weights
+    for u, v, data in H.edges(data=True):
+        # invert the edge weight since we are looking for the longest path
+        data['weight'] = max_weight - (H.nodes[u]["wcet"] + H.nodes[v]["wcet"])
+
+    path = nx.dijkstra_path(H, 0, len(node_names)-1, weight='weight')
+
+    print (path)
+
+    # TODO to be continued
+    pass
+
+sorted_tasks_by_wcet_ref = sort_task_and_return_idx(wcet_ref_summed_up)
+
+
+#print(sorted_tasks_by_wcet_ref)
+sys.exit(1)
+for t in range(len(node_names)):
+    # initialize freq to each island to their respective minimal freq, which is ALWAYS the first one
+    freqs_per_island_idx = [0]* len(islands)
+    while running and not feasible:
+        print ('searched freqs:')
+        for idx, i in enumerate(islands):
+            print (i['freqs'][freqs_per_island_idx[idx]])
+        print (freqs_per_island_idx)
+        # define_wcet()
+        # find the critical path, divide the dag deadline proportionly to the wieght og each node in the critical path
+        # define_rel_deadlines() # TODO could have some variability
+        create_minizinc_model()
+        feasible = run_minizinc()
+        if not feasible:
+            # increase the island freq and try the model again
+            # stop when all the island are already at the max frequency
+            running = inc_island_idx()
+    # move task t to the next island
 
 if not running:
     print ('no feasiable solution was found :(')
