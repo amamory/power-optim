@@ -523,9 +523,18 @@ def define_rel_deadlines(G):
     # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
     # by trying to find if it is possible to monotonicaly increase the "rel_deadline" of ant node without break the dag deadline.
     # The strategy is to increase the relative deadline of the last nodes.
-    print ('DESCENDENT')
-    print (nx.descendents(H,len(H.nodes)-1))
-    print (nx.ascendents(H,len(H.nodes)-1))
+    last_edges = H.in_edges(len(H.nodes)-1)
+    last_nodes = [e[0] for e in last_edges]
+    for n in last_nodes:
+        all_paths = nx.all_simple_paths(H, 0, n)
+        #sum_weight = sum([H.nodes[n]["wcet"] for n in critical_path])
+        rel_deadline_sum = []
+        for p in all_paths:
+            # make a tuple w the sum of the path and the path
+            rel_deadline_sum.append(sum([H.nodes[n1]["rel_deadline"] for n1 in p]))
+        # get the path with the longest sum of rel_deadline
+        max_rel_deadline_sum = max(rel_deadline_sum)
+        H.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
 
     ############################
     # 5) transfer the relative deadline back to the original DAG
