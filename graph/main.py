@@ -405,161 +405,136 @@ wcet_list = [0]* len(node_names)
 
 def define_rel_deadlines(G):
     # main steps:   
-    # 1) find the critial path in the dag, i.e., the path with longest wcet for each node    
-    # 2) assign deadline to all nodes in the critial path proportionally to its wcet
-    # 3) assign the deadline for the reamaning nodes
-    # 4) 2nd pass trying to find if it is possible to monotonicaly increase the "rel_deadline" of ant node without break the dag deadline
-    # 5) transfer the relative deadline back to the original DAG
+    # 1) convert node weight into edge weight to find longest paths
+    # 2) get all paths to each end node
+    # 3) for each node, assign its max path wcet
+    # 4) assign deadline to all nodes proportionally to its wcet and path wcet
+    # 5) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
+    # 6) transfer the relative deadline back to the original DAG
 
     ####################
-    # 1) find the critial path in the dag, i.e., the path with longest wcet for each node    
+    # 1) convert node weight into edge weight to find longest paths
     ####################
-    
     # deep copy the DAG
     H = G.copy()
 
-    # get max weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
+    # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
     max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
-    print ("MAX:", max_weight)
+    # print ("MAX:", max_weight)
 
     # assign the edge weight as the sum of the node weights
     for u, v, data in H.edges(data=True):
         # invert the edge weight since we are looking for the longest path
         data['weight'] = max_weight - (H.nodes[u]["wcet"] + H.nodes[v]["wcet"])
 
-    critical_path = nx.dijkstra_path(H, 0, len(node_names)-1, weight='weight')
-
-    # print (critical_path)
-    # sys.exit(1)
-    ####################
-    # 2) assign deadline to all nodes in the critial path proportionally to its wcet
-    ####################
-    # put all rel_deadlines to zero so it's possible to know which nodes were already defined
     for n in H.nodes:
         H.nodes[n]["rel_deadline"] = 0
-    # get the node weight sum  of the critical path
-    sum_weight = sum([H.nodes[n]["wcet"] for n in critical_path])
-    dag_deadline = G.graph['deadline']
-    for n in critical_path:
-        wcet_ratio = float(H.nodes[n]["wcet"])/float(sum_weight)
-        # assign rel_deadline proportional to its wcet
-        H.nodes[n]["rel_deadline"] = int(math.ceil(wcet_ratio*dag_deadline))
-    # print('relative deadlines:')
-    # for n in H.nodes:
-    #     print (n, H.nodes[n]["rel_deadline"])
-    # sys.exit(1)
+
+    dag_deadline = H.graph['deadline']
     ####################
-    # 3) assign the deadline for the reamaning nodes
+    # 2) get all paths to each end node
     ####################
-    # TODO: how bad is the performance of this function for larger DAGs ?!?! to be searched in the future
-    # O(n!) in the complete graph of order n.
+    # get the last edges and nodes
+    last_edges = H.in_edges(len(H.nodes)-1)
+    last_nodes = [e[0] for e in last_edges]
+    # get the paths to the last nodes
+    # TODO: bad scalability !!! the 'all_simple_paths' function is O(n!) in the complete graph of order n.
+    paths_from_last_nodes = []
     all_paths_list = []
-    all_paths = nx.all_simple_paths(H, 0, len(node_names)-1)
-    # make it a list of paths
-    all_paths_list.extend(all_paths)
+    for n in last_nodes:
+        path_list = []
+        # get all the paths to last node n
+        paths = nx.all_simple_paths(H, 0, n)
+        # make it a list of paths
+        path_list.extend(paths)
+        paths_from_last_nodes.append(path_list)
+        all_paths_list = all_paths_list + path_list
+
     # print ('ALL PATHS:', len(all_paths_list))
     # for p in all_paths_list:
     #     print (p)
     # sys.exit(1)
+    ####################
+    # 3) for each node, assign its max path wcet
+    ####################
     H.nodes[0]["wcet"] = 0
     H.nodes[len(H.nodes)-1]["wcet"] = 0
-    # create a list of tuple of visited nodes with (node wcet,False)
-    visited = [(H.nodes[n]["wcet"],False) for n in H.nodes]
+    # create a list with node wcet
+    wcet_list = [H.nodes[n]["wcet"] for n in H.nodes]
     # a tuple to save the longest of all paths. format (path wcet, path)
     critical_path2 = (0,[])
     for n in range(1,len(H.nodes)-1):
-        # if the ref_deadline is not defined yet
-        # if H.nodes[n]["rel_deadline"] == 0:
-        print ('ALL PATHS',n)
+        # print ('ALL PATHS',n)
         # get all the paths where node n is found
         partial_paths = [p for p in all_paths_list if n in p]
-        for p in partial_paths:
-            print (p)
-        
+        # for p in partial_paths:
+        #     print (p)
         # get the wcet for each path
         path_wcet_sum = []
         for p in partial_paths:
             # make a tuple w the sum of the path and the path
             path_wcet_sum.append((sum([H.nodes[n1]["wcet"] for n1 in p]), p))
-        print ('ALL SUM PATHS',n)
-        for p in path_wcet_sum:
-            print (p)
+        # print ('ALL SUM PATHS',n)
+        # for p in path_wcet_sum:
+        #     print (p)
         # get the path with the longest wcet
         max_partial_path = max(path_wcet_sum,key=lambda item:item[0])
         # save the longest of all paths
         if max_partial_path[0] > critical_path2[0]:
             critical_path2 = max_partial_path
-        print ('MAX PATHS',n)
-        print (max_partial_path)
-        print (critical_path2)
-        # mark each node of the selected path as 'visited'
+        # print ('MAX PATHS',n)
+        # print (max_partial_path)
+        # print (critical_path2)
+        # mark each node of the selected path as 'wcet_list'
         for p in max_partial_path[1]:
             # replace node wcet by path wcet
             # so, each item in this list has its longest path wcet
-            visited[p] = (max(max_partial_path[0],visited[p][0]),True)
-        # if all nodes were visited, break the loop. 'all' means logical 'and' of the list of booleans
-        print ('visited:')
-        print (visited)
-        # if all([v[1] for v in visited]):
-        #     print ('FIM!')
-        #     break
+            wcet_list[p] = max(max_partial_path[0],wcet_list[p])
+        # print ('wcet_list:')
+        # print (wcet_list)
     print ('CRITICAL PATH:')
     print (critical_path2)
 
-    # H.nodes[0]["rel_deadline"] = 0
-    # H.nodes[len(H.nodes)-1]["rel_deadline"] = 0
-    for n in H.nodes:
-        H.nodes[n]["rel_deadline"] = 0
-
+    ############################
+    # 4) assign deadline to all nodes proportionally to its wcet and path wcet
+    ############################
     for n in range(1,len(H.nodes)-1):
-        wcet_ratio = float(H.nodes[n]["wcet"])/float(visited[n][0])
+        wcet_ratio = float(H.nodes[n]["wcet"])/float(wcet_list[n])
         # assign rel_deadline proportional to its wcet
         H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
-    print('relative deadlines:', dag_deadline)
 
     ############################
-    # 4) 2nd pass trying to find if it is possible to monotonicaly increase the "rel_deadline" of ant node without break the dag deadline
+    # 5) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
     ############################
     # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
-    # by trying to find if it is possible to monotonicaly increase the "rel_deadline" of ant node without break the dag deadline.
-    # The strategy is to increase the relative deadline of the last nodes.
-    last_edges = H.in_edges(len(H.nodes)-1)
-    last_nodes = [e[0] for e in last_edges]
-    for n in last_nodes:
-        all_paths = nx.all_simple_paths(H, 0, n)
-        #sum_weight = sum([H.nodes[n]["wcet"] for n in critical_path])
+    # by trying to increase the relative deadline of the last nodes.
+    for n in paths_from_last_nodes:
+        # the last node index
+        node = n[0][-1]
         rel_deadline_sum = []
-        for p in all_paths:
+        # print ('PATHS:', node)
+        for p in n:
+            # print (p)
             # make a tuple w the sum of the path and the path
             rel_deadline_sum.append(sum([H.nodes[n1]["rel_deadline"] for n1 in p]))
         # get the path with the longest sum of rel_deadline
         max_rel_deadline_sum = max(rel_deadline_sum)
-        H.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
+        # assign any reamaning slack to its last node
+        H.nodes[node]["rel_deadline"] = H.nodes[node]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
 
     ############################
-    # 5) transfer the relative deadline back to the original DAG
+    # 6) transfer the relative deadline back to the original DAG
     ############################
     for n in H.nodes:
-        # print (n, H.nodes[n]["rel_deadline"], H.nodes[n]["wcet"], visited[n][0])
-        print (n, H.nodes[n]["rel_deadline"])
+        #print (n, H.nodes[n]["rel_deadline"])
         G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
-# 0 0
-# 1 33
-# 2 33
-# 3 88
-# 4 33
-# 5 5
-# 8 6  <=== correct would be 12
-# 6 33
-# 7 5
-# 9 0
-    sys.exit(1)
-    # TODO to be continued
-    pass
 
 # sorted_tasks_by_wcet_ref = sort_task_and_return_idx(wcet_ref_summed_up)
 
 define_rel_deadlines(G)
+print ('NEW RELATIVE DEADLINES:')
+for n in G.nodes:
+    print (n, G.nodes[n]["rel_deadline"])
 
 #print(sorted_tasks_by_wcet_ref)
 sys.exit(1)
