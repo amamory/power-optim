@@ -408,6 +408,8 @@ def define_rel_deadlines(G):
     # 1) find the critial path in the dag, i.e., the path with longest wcet for each node    
     # 2) assign deadline to all nodes in the critial path proportionally to its wcet
     # 3) assign the deadline for the reamaning nodes
+    # 4) 2nd pass trying to find if it is possible to monotonicaly increase the "rel_deadline" of ant node without break the dag deadline
+    # 5) transfer the relative deadline back to the original DAG
 
     ####################
     # 1) find the critial path in the dag, i.e., the path with longest wcet for each node    
@@ -514,9 +516,24 @@ def define_rel_deadlines(G):
         # assign rel_deadline proportional to its wcet
         H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
     print('relative deadlines:', dag_deadline)
+
+    ############################
+    # 4) 2nd pass trying to find if it is possible to monotonicaly increase the "rel_deadline" of ant node without break the dag deadline
+    ############################
+    # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
+    # by trying to find if it is possible to monotonicaly increase the "rel_deadline" of ant node without break the dag deadline.
+    # The strategy is to increase the relative deadline of the last nodes.
+    print ('DESCENDENT')
+    print (nx.descendents(H,len(H.nodes)-1))
+    print (nx.ascendents(H,len(H.nodes)-1))
+
+    ############################
+    # 5) transfer the relative deadline back to the original DAG
+    ############################
     for n in H.nodes:
         # print (n, H.nodes[n]["rel_deadline"], H.nodes[n]["wcet"], visited[n][0])
         print (n, H.nodes[n]["rel_deadline"])
+        G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
 # 0 0
 # 1 33
 # 2 33
