@@ -68,12 +68,12 @@ node_names = {e for l in edge_list for e in l}
 node_names = list(node_names)
 print ('node names:',node_names)
 wcet = [10 for x in range(len(node_names))]
+wcet[3] = 15
 wcet_ns = [3 for x in range(len(node_names))]
 rel_deadline = [x*3 for x in wcet]
 # island = [0 for x in range(len(node_names))]
 # proc = [0 for x in range(len(node_names))]
 nodes_attrib = [1 for x in range(len(node_names))]
-nodes_attrib[3] = 15
 
 nodeData = pd.DataFrame({'name' : node_names,
                   'wcet_ref' : wcet,     # wcet at the reference freq
