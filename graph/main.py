@@ -254,14 +254,14 @@ def pu_utilization(p) -> boolean:
     else:
         return True
 
-pu_u = pu_utilization(0)
-print (pu_utilization(0))
-print (pu_utilization(1))
-# switching from the lowest freq to the 2nd lowest freq
-freq_mat[0][0] = 0
-freq_mat[0][1] = 1
-print (pu_utilization(0))
-print (pu_utilization(1))
+# pu_u = pu_utilization(0)
+# print (pu_utilization(0))
+# print (pu_utilization(1))
+# # switching from the lowest freq to the 2nd lowest freq
+# freq_mat[0][0] = 0
+# freq_mat[0][1] = 1
+# print (pu_utilization(0))
+# print (pu_utilization(1))
 # # switching from the lowest freq to the 2nd lowest freq
 # freq_mat[0][1] = 0
 # freq_mat[0][2] = 1
@@ -416,7 +416,7 @@ def define_wcet():
     for idx,i in enumerate(islands):
         for t in i['placement']:
             wcet = calc_wcet(t,proc_id[idx],0)
-            G.nodes[t]["wcet"] = wcet
+            G.nodes[t]["wcet"] = int(math.ceil(wcet))
     # cannot have a task not placed in an island
     for t in G.nodes:
         if G.nodes[t]["wcet"] == 0:
@@ -656,7 +656,7 @@ define_wcet()
 print ('WCET:')
 for n in G.nodes:
     print (n, G.nodes[n]["wcet"])
-
+sys.exit(1)
 
 for t in range(len(node_names)):
     # initialize freq to each island to their respective minimal freq, which is ALWAYS the first one
