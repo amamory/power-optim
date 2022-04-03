@@ -656,7 +656,6 @@ define_wcet()
 print ('WCET:')
 for n in G.nodes:
     print (n, G.nodes[n]["wcet"])
-sys.exit(1)
 
 for t in range(len(node_names)):
     # initialize freq to each island to their respective minimal freq, which is ALWAYS the first one
@@ -666,9 +665,11 @@ for t in range(len(node_names)):
         for idx, i in enumerate(islands):
             print (i['freqs'][freqs_per_island_idx[idx]])
         print (freqs_per_island_idx)
+        # define the wcet for each task based on which island each task is placed and the freq for each island
         define_wcet()
         # find the critical path, divide the dag deadline proportionly to the wieght og each node in the critical path
-        # define_rel_deadlines() # TODO could have some variability
+        define_rel_deadlines(G) # TODO could have some variability
+        sys.exit(1)
         create_minizinc_model()
         feasible = run_minizinc()
         if not feasible:
