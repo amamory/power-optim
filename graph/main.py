@@ -108,6 +108,7 @@ island1['n_pus'] = 2
 island1['busy_power'] = 100 # TODO review grabriele's paper to get the funtion of power compared to freq
 island1['idle_power'] = 20
 island1['freqs'] = [100, 500, 1000]
+island1['placement'] = [] # the tasks placed in this island
 islands.append(island1)
 
 island2 = {}
@@ -116,6 +117,7 @@ island2['n_pus'] = 2
 island2['busy_power'] = 20
 island2['idle_power'] = 2
 island2['freqs'] = [50, 100, 200]
+island2['placement'] = [] # the tasks placed in this island
 islands.append(island2)
 
 island3 = {}
@@ -124,6 +126,7 @@ island3['n_pus'] = 2
 island3['busy_power'] = 50
 island3['idle_power'] = 5
 island3['freqs'] = [100, 200, 300]
+island3['placement'] = [] # the tasks placed in this island
 islands.append(island3)
 
 
@@ -391,18 +394,120 @@ def sort_task_and_return_idx(wcet):
 # print (testing)
 # print (testing_sorted)
 
+# define the wcet of each task based on in which island the task is placed
+def define_wcet():
+    for t in G.nodes:
+        G.nodes[t]["wcet"] = 0
+    # cannot find a task in multiple island
+    for idx1,i1 in enumerate(islands[:-1]):
+        for idx2, i2 in enumerate(islands[idx1+1:]):
+            set1 = set(i1['placement'])
+            set2 = set(i2['placement'])
+            inter = set1.intersection(set2) 
+            if len(inter) > 0:
+                print ('WARNING: task(s) ', inter, 'where fond in islands',idx1,'and',idx2)
+    # get a valid processing unit id for each island
+    proc_id = []
+    n_pu = 0
+    for i in islands:
+        proc_id.append(n_pu)
+        n_pu = n_pu + i['n_pus'] 
+    # calculate the wcet for each task
+    for idx,i in enumerate(islands):
+        for t in i['placement']:
+            wcet = calc_wcet(t,proc_id[idx],0)
+            G.nodes[t]["wcet"] = wcet
+    # cannot have a task not placed in an island
+    for t in G.nodes:
+        if G.nodes[t]["wcet"] == 0:
+            print ('WARNING: wcet for task', t, 'not defined')
 
-wcet_list = [0]* len(node_names)
+# assign relative deadline to each node
+# potentially optmized version using 'shortest path' algorithms instead of 'all paths'
+# compexity O(n*(n+v))
+# TODO: code critical_path function based on the node weight rather than using shortest path based on edge weight
+# https://stackoverflow.com/questions/6007289/calculating-the-critical-path-of-a-graph
+def define_rel_deadlines2(G):
+    # main steps:   
+    # 1) convert node weight into edge weight to find longest paths
+    # 2) get the critical path to each node
+    # 3) assign deadline to all nodes proportionally to its wcet and path wcet
+    # 4) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
+    # 5) transfer the relative deadline back to the original DAG
 
-# def define_wcet():
-#     wcet_list = []
-#     for t in range(len(node_names)):
-#         # TODO get its island
-#         wcet = calc_wcet(t,i,0)
-#         wcet_list.append(wcet)
-#         H.nodes[u]["wcet"]
+    ####################
+    # 1) convert node weight into edge weight to find longest paths
+    ####################
+    # deep copy the DAG
+    H = G.copy()
 
+    last_node = len(H.nodes)-1
+    H.nodes[0]["wcet"] = 0
+    H.nodes[last_node]["wcet"] = 0
 
+    # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
+    max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
+
+    # assign the edge weight as the sum of the node weights
+    for u, v, data in H.edges(data=True):
+        # invert the edge weight since we are looking for the longest path
+        data['weight'] = max_weight - (H.nodes[u]["wcet"] + H.nodes[v]["wcet"])
+
+    for n in H.nodes:
+        H.nodes[n]["rel_deadline"] = 0
+
+    dag_deadline = H.graph['deadline']
+    ####################
+    # 2) get all paths to each end node
+    ####################
+    wcet_path_list  = [0]*len(H.nodes)
+    for n in range(1,last_node):
+        # get the critical path from the node 0 to the node n
+        ipath = nx.shortest_path(H,0,n,weight='weight')
+        isum = sum([H.nodes[n1]["wcet"] for n1 in ipath])
+        # print (n, isum, ipath)
+        # get the critical path from the node n to the last node 
+        opath = nx.shortest_path(H,n,last_node, weight='weight')
+        osum = sum([H.nodes[n1]["wcet"] for n1 in opath[1:]])
+        # print (n, osum, opath)
+        # assign the critical path to node n
+        wcet_path_list[n] = isum+osum
+
+    ############################
+    # 3) assign deadline to all nodes proportionally to its wcet and path wcet
+    ############################
+    for n in range(1,len(H.nodes)-1):
+        wcet_ratio = float(H.nodes[n]["wcet"])/float(wcet_path_list[n])
+        # assign rel_deadline proportional to its wcet
+        H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
+
+    ############################
+    # 4) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
+    ############################
+    # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
+    # by trying to increase the relative deadline of the last nodes.
+    # get the last edges and nodes
+    last_edges = H.in_edges(len(H.nodes)-1)
+    last_nodes = [e[0] for e in last_edges]
+    for n in last_nodes:
+        # the critical path
+        path = nx.shortest_path(H,0,n,weight='weight')
+        max_rel_deadline_sum = sum([H.nodes[n1]["rel_deadline"] for n1 in path])
+        # assign any reamaning slack to its last node
+        if max_rel_deadline_sum > dag_deadline:
+            print('WARNING: path',path, 'has cost',max_rel_deadline_sum)
+        H.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
+        if H.nodes[n]["rel_deadline"] <= 0:
+            print('WARNING: path',path, 'has non positive cost',H.nodes[n]["rel_deadline"])
+
+    ############################
+    # 5) transfer the relative deadline back to the original DAG
+    ############################
+    for n in H.nodes:
+        G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
+
+# assign relative deadline to each node
+# not scalable code with compexity O(n!)
 def define_rel_deadlines(G):
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
@@ -531,13 +636,28 @@ def define_rel_deadlines(G):
 
 # sorted_tasks_by_wcet_ref = sort_task_and_return_idx(wcet_ref_summed_up)
 
+define_rel_deadlines2(G)
+print ('NEW RELATIVE DEADLINES:')
+for n in G.nodes:
+    print (n, G.nodes[n]["rel_deadline"])
+
 define_rel_deadlines(G)
 print ('NEW RELATIVE DEADLINES:')
 for n in G.nodes:
     print (n, G.nodes[n]["rel_deadline"])
 
 #print(sorted_tasks_by_wcet_ref)
-sys.exit(1)
+#sys.exit(1)
+
+# place all tasks into the 1st island, the one with lowest capacity
+islands[0]['placement'] = range(len(node_names))
+
+define_wcet()
+print ('WCET:')
+for n in G.nodes:
+    print (n, G.nodes[n]["wcet"])
+
+
 for t in range(len(node_names)):
     # initialize freq to each island to their respective minimal freq, which is ALWAYS the first one
     freqs_per_island_idx = [0]* len(islands)
@@ -546,7 +666,7 @@ for t in range(len(node_names)):
         for idx, i in enumerate(islands):
             print (i['freqs'][freqs_per_island_idx[idx]])
         print (freqs_per_island_idx)
-        # define_wcet()
+        define_wcet()
         # find the critical path, divide the dag deadline proportionly to the wieght og each node in the critical path
         # define_rel_deadlines() # TODO could have some variability
         create_minizinc_model()
