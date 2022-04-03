@@ -425,9 +425,10 @@ def define_wcet():
 # assign relative deadline to each node
 # potentially optmized version using 'shortest path' algorithms instead of 'all paths'
 # compexity O(n*(n+v))
+# return false if the deadline is not feasible
 # TODO: code critical_path function based on the node weight rather than using shortest path based on edge weight
 # https://stackoverflow.com/questions/6007289/calculating-the-critical-path-of-a-graph
-def define_rel_deadlines2(G):
+def define_rel_deadlines2(G) -> bool:
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
     # 2) get the critical path to each node
@@ -444,9 +445,17 @@ def define_rel_deadlines2(G):
     last_node = len(H.nodes)-1
     H.nodes[0]["wcet"] = 0
     H.nodes[last_node]["wcet"] = 0
+    dag_deadline = H.graph['deadline']
 
     # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
     max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
+
+    # if a single task is longer than the dag deadline, then this is not a solution
+    if (max_weight > dag_deadline):
+        print ('WARNINIG: a single task wcet is longer than then DAG deadline', dag_deadline)
+        for t in H.nodes:
+            print (t, H.nodes[t]["wcet"])
+        return False
 
     # assign the edge weight as the sum of the node weights
     for u, v, data in H.edges(data=True):
@@ -456,7 +465,6 @@ def define_rel_deadlines2(G):
     for n in H.nodes:
         H.nodes[n]["rel_deadline"] = 0
 
-    dag_deadline = H.graph['deadline']
     ####################
     # 2) get all paths to each end node
     ####################
@@ -500,15 +508,28 @@ def define_rel_deadlines2(G):
         if H.nodes[n]["rel_deadline"] <= 0:
             print('WARNING: path',path, 'has non positive cost',H.nodes[n]["rel_deadline"])
 
+        # if the path is longer than the DAG deadline, this cannot be a solution
+        if max_rel_deadline_sum > dag_deadline:
+            print ('WARNING: path', path, 'takes', max_rel_deadline_sum,', longer than DAG deadline', dag_deadline)
+            return False
+
+    # the relative deadline of a task cannot be lower than its wcet
+    for n in H.nodes:
+        if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
+            print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
+            return False
     ############################
     # 5) transfer the relative deadline back to the original DAG
     ############################
     for n in H.nodes:
         G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
 
+    return True
+
 # assign relative deadline to each node
 # not scalable code with compexity O(n!)
-def define_rel_deadlines(G):
+# return false if the deadline is not feasible
+def define_rel_deadlines(G) -> bool:
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
     # 2) get all paths to each end node
@@ -523,19 +544,27 @@ def define_rel_deadlines(G):
     # deep copy the DAG
     H = G.copy()
 
+    last_node = len(H.nodes)-1
+    H.nodes[0]["wcet"] = 0
+    H.nodes[last_node]["wcet"] = 0
+    dag_deadline = H.graph['deadline']
+
     # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
     max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
     # print ("MAX:", max_weight)
+
+    # if a single task is longer than the dag deadline, then this is not a solution
+    if (max_weight > dag_deadline):
+        print ('WARNINIG: a single task wcet is longer than then DAG deadline', dag_deadline)
+        for t in H.nodes:
+            print (t, H.nodes[t]["wcet"])
+        return False
 
     # assign the edge weight as the sum of the node weights
     for u, v, data in H.edges(data=True):
         # invert the edge weight since we are looking for the longest path
         data['weight'] = max_weight - (H.nodes[u]["wcet"] + H.nodes[v]["wcet"])
 
-    for n in H.nodes:
-        H.nodes[n]["rel_deadline"] = 0
-
-    dag_deadline = H.graph['deadline']
     ####################
     # 2) get all paths to each end node
     ####################
@@ -627,12 +656,25 @@ def define_rel_deadlines(G):
         # assign any reamaning slack to its last node
         H.nodes[node]["rel_deadline"] = H.nodes[node]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
 
+    # if the critical path is longer than the DAG deadline, this cannot be a solution
+    if critical_path2[0] > dag_deadline:
+        print ('WARNING: critical path', critical_path2[1], 'takes', critical_path2[0],', longer than DAG deadline', dag_deadline)
+        return False
+
+    # the relative deadline of a task cannot be lower than its wcet
+    for n in H.nodes:
+        if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
+            print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
+            return False
+
     ############################
     # 6) transfer the relative deadline back to the original DAG
     ############################
     for n in H.nodes:
         #print (n, H.nodes[n]["rel_deadline"])
         G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
+
+    return True
 
 # sorted_tasks_by_wcet_ref = sort_task_and_return_idx(wcet_ref_summed_up)
 
@@ -668,7 +710,11 @@ for t in range(len(node_names)):
         # define the wcet for each task based on which island each task is placed and the freq for each island
         define_wcet()
         # find the critical path, divide the dag deadline proportionly to the wieght og each node in the critical path
-        define_rel_deadlines(G) # TODO could have some variability
+        if not define_rel_deadlines(G): # TODO could have some variability
+            print ('not a solution:')
+        print ('WCET and REL DEADLINE:')
+        for n in G.nodes:
+            print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
         sys.exit(1)
         create_minizinc_model()
         feasible = run_minizinc()
