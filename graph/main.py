@@ -710,14 +710,16 @@ for t in range(len(node_names)):
         # define the wcet for each task based on which island each task is placed and the freq for each island
         define_wcet()
         # find the critical path, divide the dag deadline proportionly to the wieght og each node in the critical path
-        if not define_rel_deadlines(G): # TODO could have some variability
+        if define_rel_deadlines(G): # TODO could have some variability
+            create_minizinc_model()
+            feasible = run_minizinc()
+        else:
             print ('not a solution:')
-        print ('WCET and REL DEADLINE:')
-        for n in G.nodes:
-            print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
-        sys.exit(1)
-        create_minizinc_model()
-        feasible = run_minizinc()
+            feasible = False
+        # print ('WCET and REL DEADLINE:')
+        # for n in G.nodes:
+        #     print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
+        # sys.exit(1)
         if not feasible:
             # increase the island freq and try the model again
             # stop when all the island are already at the max frequency
