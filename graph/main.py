@@ -334,6 +334,12 @@ def inc_island_idx() -> bool:
     # points to the last incremented island
     inced = 0
     for i in range(n_islands):
+        # if there is no task placed in this island, skip it if this is not the last island
+        if len(islands[i]['placement'])==0:
+            if i == n_islands-1:
+                return False
+            else:
+                continue
         # if island idx i is not pointing to its max freq, then point to the next higher freq of this island
         if freqs_per_island_idx[i] < (n_freqs_per_island[i]-1):
             freqs_per_island_idx[i] = freqs_per_island_idx[i] +1
@@ -342,22 +348,18 @@ def inc_island_idx() -> bool:
         else:
             # if this is not the last island, then go to the next island to increment its freq
             if i >= (n_islands-1):
-                
                 return False
+                
     # all island before the last incremented island must start over at their lowest freq
     for i in range(inced):
         freqs_per_island_idx[i] = 0
-    return True
 
-# stop running until a feasible solution is found or
-# until all the island freqs where tested. In this case, it means no solution is possible
-running = True
-feasible = False
-# place all tasks in the lowest capacity island. Assuming the island were already sorted by capacity
-task_placement = [0*len(node_names)]
-# sort tasks in increasing wcet_ref
-# the scalable and non scalable parts are added
-wcet_ref_summed_up = [wcet[i]+wcet_ns[i] for i in range(len(node_names))]
+    # assign the selected freq to the binary matrix
+    freq_mat = [ [0]*max_n_freq for i in range(len(islands))]
+    for i in range(n_islands):
+        freq_mat[i][freqs_per_island_idx[i]] = 1
+
+    return True
 
 # take the first element for sort
 def take_first(elem):
@@ -676,8 +678,6 @@ def define_rel_deadlines(G) -> bool:
 
     return True
 
-# sorted_tasks_by_wcet_ref = sort_task_and_return_idx(wcet_ref_summed_up)
-
 define_rel_deadlines2(G)
 print ('NEW RELATIVE DEADLINES:')
 for n in G.nodes:
@@ -688,16 +688,54 @@ print ('NEW RELATIVE DEADLINES:')
 for n in G.nodes:
     print (n, G.nodes[n]["rel_deadline"])
 
-#print(sorted_tasks_by_wcet_ref)
-#sys.exit(1)
-
-# place all tasks into the 1st island, the one with lowest capacity
-islands[0]['placement'] = range(len(node_names))
-
 define_wcet()
 print ('WCET:')
 for n in G.nodes:
     print (n, G.nodes[n]["wcet"])
+
+# return false if task t was already in the last island
+def move_task_between_islands(t) -> bool:
+    found = False
+    for i in range(n_islands):
+        if t in islands[i]['placement']:
+            if i == n_islands-1:
+                return False
+            else:
+                islands[i]['placement'].remove(t)
+                islands[i+1]['placement'].append(t)
+                found = True
+                break
+    if not found:
+        print('WARNING: task',t, 'not assigned to any island')
+    return True
+
+
+# stop running until a feasible solution is found or
+# until all the island freqs where tested. In this case, it means no solution is possible
+running = True
+feasible = False
+# sort tasks in increasing wcet_ref
+# the scalable and non scalable parts are added
+# wcet_ref_summed_up = [wcet[i]+wcet_ns[i] for i in range(len(node_names))]
+# sorted_tasks_by_wcet_ref = sort_task_and_return_idx(wcet_ref_summed_up)
+# print(sorted_tasks_by_wcet_ref)
+# sys.exit(1)
+
+# place all tasks into the 1st island, the one with lowest capacity
+islands[0]['placement'] = range(len(node_names))
+
+# The number of combinations of t tasks in i islands
+# is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
+# The number of nodes of a Perfect N-ary Tree of height h is: (N^(h+1)-1)/(N-1)
+# Thus, the number of leafs in a Perfect N-ary Tree of height h is: ((N^(h+1)-1)/(N-1)) - ((N^(h)-1)/(N-1))
+# Let a function C(i,t) denote the combinetion mentioned above. 
+#  - C(2,2) = 4
+#  - C(2,3) = 8
+#  - C(3,2) = 9
+#  - C(3,10) = 59,049 
+#  - C(3,20) = 3,486,784,401 
+#  - C(2,20) = 1,048,576 
+#  - C(2,30) = 1,073,741,824 
 
 for t in range(len(node_names)):
     # initialize freq to each island to their respective minimal freq, which is ALWAYS the first one
@@ -716,15 +754,16 @@ for t in range(len(node_names)):
         else:
             print ('not a solution:')
             feasible = False
-        # print ('WCET and REL DEADLINE:')
-        # for n in G.nodes:
-        #     print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
+        print ('WCET and REL DEADLINE:')
+        for n in G.nodes:
+            print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
         # sys.exit(1)
         if not feasible:
             # increase the island freq and try the model again
             # stop when all the island are already at the max frequency
             running = inc_island_idx()
     # move task t to the next island
+    move_task_between_islands(t)
 
 if not running:
     print ('no feasiable solution was found :(')
