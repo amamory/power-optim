@@ -726,6 +726,7 @@ islands[0]['placement'] = range(len(node_names))
 
 # The number of combinations of t tasks in i islands
 # is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
+# https://ece.uwaterloo.ca/~dwharder/aads/Lecture_materials/5.04.N-ary_trees.pdf
 # The number of nodes of a Perfect N-ary Tree of height h is: (N^(h+1)-1)/(N-1)
 # Thus, the number of leafs in a Perfect N-ary Tree of height h is: ((N^(h+1)-1)/(N-1)) - ((N^(h)-1)/(N-1))
 # Let a function C(i,t) denote the combinetion mentioned above. 
