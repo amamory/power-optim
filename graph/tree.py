@@ -89,7 +89,6 @@ def _build_perfect_tree(ary,height, branch, islands) -> Node:
         node.children[i] = _build_perfect_tree(ary, height-1, i, node.islands)
     return node
 
-
 if __name__ == "__main__":
 
     leaf_list = task_island_combinations(3,3)
