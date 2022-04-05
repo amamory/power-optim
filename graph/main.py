@@ -3,6 +3,8 @@ from xmlrpc.client import boolean
 import networkx as nx
 import pandas as pd
 import math
+# libs
+import tree
 
 # Ignored constraints:
 # - affinity constraints
@@ -737,6 +739,8 @@ islands[0]['placement'] = range(len(node_names))
 #  - C(3,20) = 3,486,784,401 
 #  - C(2,20) = 1,048,576 
 #  - C(2,30) = 1,073,741,824 
+
+leaf_list = tree.task_island_combinations(3,3)
 
 for t in range(len(node_names)):
     # initialize freq to each island to their respective minimal freq, which is ALWAYS the first one
