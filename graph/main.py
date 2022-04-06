@@ -275,30 +275,61 @@ print (pu_utilization(2))
 print (pu_utilization(3))
 
 
-
-# return power consumed by the pu p
-def pu_power(p) -> float:
-    # get the index of the tasks deployed in PU p
-    deployed_tasks = [x for x in range(len(deploy_mat)) if deploy_mat[x][p] == 1] 
+# return power consumed by the island i
+def island_power(i) -> float:
+    # get the index of the tasks deployed in island i
+    deployed_tasks = [x for x in islands[i]['placement']] 
     
-    i = get_island(p)
-    print ('p:',p,i)
-    busy_power = islands[i]['busy_power']
-    idle_power = islands[i]['idle_power']
+    # get the assigned freq and scales it down linearly with the the island max frequency
+    freq_scale_down = float(islands[i]['freqs'][freqs_per_island_idx[i]]) / float(islands[i]['freqs'][len(islands[i]['freqs'])-1])
+    busy_power = islands[i]['busy_power'] * freq_scale_down
+    idle_power = islands[i]['idle_power'] * freq_scale_down
 
     utilization = 0.0
     z=1
     activation_period = G.graph['activation_period']
     for t in deployed_tasks:
-        new_wcet = calc_wcet(t,p,0)
+        # assumes that wcet was calculated previously
+        wcet = G.nodes[t]['wcet']
         # TODO get z
-        utilization = utilization + (z*float(new_wcet)/float(activation_period))
-    print (deployed_tasks, new_wcet, z, activation_period, utilization)
+        utilization = utilization + (z*float(wcet)/float(activation_period))
+    #print (deployed_tasks, wcet, z, activation_period, utilization)
 
-    return idle_power + (busy_power-idle_power) * utilization
+    # TODO is it correct to divide the utilization by the number of PUs ?!??!
+    return idle_power + (busy_power-idle_power) * float(utilization/float(islands[i]['n_pus']))
 
-for p in range(total_pus):
-    print ('power:', pu_power(p))
+
+# # return power consumed by the pu p
+# def pu_power(p) -> float:
+#     # get the index of the tasks deployed in PU p
+#     deployed_tasks = [x for x in range(len(deploy_mat)) if deploy_mat[x][p] == 1] 
+    
+#     i = get_island(p)
+#     print ('p:',p,i)
+#     busy_power = islands[i]['busy_power']
+#     idle_power = islands[i]['idle_power']
+
+#     utilization = 0.0
+#     z=1
+#     activation_period = G.graph['activation_period']
+#     for t in deployed_tasks:
+#         new_wcet = calc_wcet(t,p,0)
+#         # TODO get z
+#         utilization = utilization + (z*float(new_wcet)/float(activation_period))
+#     print (deployed_tasks, new_wcet, z, activation_period, utilization)
+
+#     return idle_power + (busy_power-idle_power) * utilization
+
+# for p in range(total_pus):
+#     print ('power:', pu_power(p))
+
+
+# sum up the power of each island based on current task placement and island frequency
+def define_power() ->  float:
+    total_power = 0.0
+    for i in range(n_islands):
+        total_power = total_power +  island_power(i)
+    return total_power
 
 #
 # Heusristic 
@@ -760,10 +791,6 @@ def define_rel_deadlines(G) -> bool:
 #     return True
 
 
-# stop running until a feasible solution is found or
-# until all the island freqs where tested. In this case, it means no solution is possible
-running = True
-feasible = True
 # sort tasks in increasing wcet_ref
 # the scalable and non scalable parts are added
 # wcet_ref_summed_up = [wcet[i]+wcet_ns[i] for i in range(len(node_names))]
@@ -800,9 +827,9 @@ freq_seq = create_frequency_sequence()
 # for i in freq_seq:
 #     print (i)
 
-best_power = 0.0
-lowest_critical_path = 0.0
-best_task_placement = None
+best_power = 999999.0
+# lowest_critical_path = 999999
+best_task_placement = [0]*n_islands
 best_freq_idx = []
 l_idx = 0
 for l in leaf_list:
@@ -828,10 +855,19 @@ for l in leaf_list:
         # If so, divide the dag deadline proportionly to the weight of each node in the critical path
         feasible = define_rel_deadlines(G) # TODO could have some variability in rel deadline assingment
         # TODO check the island/processor capacity feasibility
+        power = define_power()
+        print (power)
         if feasible: 
             # TODO since this solutions is feasible, check whether this was the lowest power found so far.
             # If so, update the best solution
-            pass
+            power = define_power()
+            if power < best_power:
+                best_power = power
+                # save the best task placement onto the set of islands and the best frequency assignment
+                for i in range(n_islands):
+                    best_task_placement[i] = list(l.islands[i])
+                best_freq_idx = list(freqs_per_island_idx)
+                print ('solution found with power',best_power, best_task_placement, best_freq_idx)
         else:
             print ('not a solution:')
             
@@ -841,5 +877,7 @@ for l in leaf_list:
         freq_idx = freq_idx + 1
     l_idx = l_idx +1
 
-if not running:
+if best_power < 999999.0:
+    print ('solution found with power',best_power, best_task_placement, best_freq_idx)
+else:
     print ('no feasiable solution was found :(')
