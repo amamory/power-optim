@@ -852,7 +852,6 @@ freq_seq = create_frequency_sequence()
 #     print (i)
 
 best_power = 999999.0
-# lowest_critical_path = 999999
 best_task_placement = [0]*n_islands
 best_freq_idx = []
 l_idx = 0
