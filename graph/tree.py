@@ -82,7 +82,7 @@ def _build_perfect_tree(ary,height, branch, islands) -> Node:
         # only the root must be branch==None
         # copy the island fro the parent and add another task
         node.islands = [x[:] for x in islands]
-        node.islands[branch].append(height)
+        node.islands[branch].append(height-1)
     if height == 1:
         return node
     for i in range(ary):

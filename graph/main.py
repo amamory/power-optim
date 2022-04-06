@@ -366,13 +366,12 @@ n_islands = len(islands)
 
 # TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
 #def create_frequency_sequence(freq_seq):
-def create_frequency_sequence():
-    global freq_seq
-    #freq_seq = []
+def create_frequency_sequence() -> list():
+    freq_seq = []
     stop = False
     # start with all islands using their respective minimal frequencies
     freqs_per_island_idx = [0]*n_islands
-    freq_seq.append(freqs_per_island_idx[:])
+    freq_seq.append(list(freqs_per_island_idx))
     while True:
         # points to the last incremented island
         inced = 0
@@ -389,14 +388,14 @@ def create_frequency_sequence():
         # all island before the last incremented island must start over at their lowest freq
         for i in range(inced):
             freqs_per_island_idx[i] = 0
-        freq_seq.append(freqs_per_island_idx[:])
+        freq_seq.append(list(freqs_per_island_idx))
         # if all freqs are at their maximal value, then stop
         if stop:
             break
 
     # want to get have the maximal freq for each island 1st, to prune the search space faster
-    freq_seq = freq_seq.reverse()
-    #return aux
+    reversed_freq_seq = list(reversed(freq_seq))
+    return reversed_freq_seq
 
 # take the first element for sort
 # def take_first(elem):
@@ -488,9 +487,10 @@ def define_rel_deadlines2(G) -> bool:
 
     # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
     max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
+    max_task_wcet = max([H.nodes[n]["wcet"] for n in H.nodes])
 
     # if a single task is longer than the dag deadline, then this is not a solution
-    if (max_weight > dag_deadline):
+    if (max_task_wcet > dag_deadline):
         print ('WARNINIG: a single task wcet is longer than then DAG deadline', dag_deadline)
         for t in H.nodes:
             print (t, H.nodes[t]["wcet"])
@@ -596,10 +596,11 @@ def define_rel_deadlines(G) -> bool:
 
     # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
     max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
+    max_task_wcet = max([H.nodes[n]["wcet"] for n in H.nodes])
     # print ("MAX:", max_weight)
 
     # if a single task is longer than the dag deadline, then this is not a solution
-    if (max_weight > dag_deadline):
+    if (max_task_wcet > dag_deadline):
         print ('WARNINIG: a single task wcet is longer than then DAG deadline', dag_deadline)
         for t in H.nodes:
             print (t, H.nodes[t]["wcet"])
@@ -762,7 +763,7 @@ def define_rel_deadlines(G) -> bool:
 # stop running until a feasible solution is found or
 # until all the island freqs where tested. In this case, it means no solution is possible
 running = True
-feasible = False
+feasible = True
 # sort tasks in increasing wcet_ref
 # the scalable and non scalable parts are added
 # wcet_ref_summed_up = [wcet[i]+wcet_ns[i] for i in range(len(node_names))]
@@ -792,57 +793,53 @@ feasible = False
 #
 #  So, assuming C(2,30) = 1,073,741,824, and assuming each node uses 1 byte of mem, 
 #  which is obviously understimated, this tree would use at least 1Gbyte RAM.
-leaf_list = tree.task_island_combinations(3,3)
+leaf_list = tree.task_island_combinations(n_islands,len(G.nodes))
+search_space_size = len(leaf_list)
 # this is the sequence the set of frequencies must be evaluated
-freq_seq = []
-create_frequency_sequence()
-for i in freq_seq:
-    print (i)
-# sys.exit(1)
-
+freq_seq = create_frequency_sequence()
+# for i in freq_seq:
+#     print (i)
 
 best_power = 0.0
 lowest_critical_path = 0.0
 best_task_placement = None
 best_freq_idx = []
-
+l_idx = 0
 for l in leaf_list:
     # assume the following task placement onto the set of islands
     for i in range(n_islands):
         islands[i]["placement"] = l.islands[i]
-    # Initialize freq to each island to their respective max freq, which is ALWAYS the last one.
+    # Initialize freq to each island to their respective max freq.
     # The rational is that, if this task placement does not respect the DAG deadline
     # assigning their maximal frequencies, then this task placement cannot be a valid solution and
     # the search skip to the next task placement combination
-    
     freq_idx = 0
-    while running and not feasible:
-        print ('searched freqs:')
+    feasible = True
+    print ('Checking solution',l_idx, 'out of',search_space_size)
+    while feasible:
+        # print ('searched freqs:')
         freqs_per_island_idx = freq_seq[freq_idx]
-        for idx, i in enumerate(islands):
-            print (i['freqs'][freqs_per_island_idx[idx]])
-        print (freqs_per_island_idx)
+        # for idx, i in enumerate(islands):
+        #     print (i['freqs'][freqs_per_island_idx[idx]])
+        # print (freqs_per_island_idx)
         # define the wcet for each task based on which island each task is placed and the freq for each island
         define_wcet()
-        # find the critical path, divide the dag deadline proportionly to the weight of each node in the critical path
-        if define_rel_deadlines(G): # TODO could have some variability
-            # create_minizinc_model()
-            # feasible = run_minizinc()
+        # find the critical path and check whether the solution might be feasible.
+        # If so, divide the dag deadline proportionly to the weight of each node in the critical path
+        feasible = define_rel_deadlines(G) # TODO could have some variability in rel deadline assingment
+        # TODO check the island/processor capacity feasibility
+        if feasible: 
+            # TODO since this solutions is feasible, check whether this was the lowest power found so far.
+            # If so, update the best solution
             pass
         else:
             print ('not a solution:')
-            feasible = False
-        print ('WCET and REL DEADLINE:')
-        for n in G.nodes:
-            print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
-        # sys.exit(1)
-        # if not feasible:
-            # increase the island freq and try the model again
-            # stop when all the island are already at the max frequency
-        # running = 
+            
+        # print ('WCET and REL DEADLINE:')
+        # for n in G.nodes:
+        #     print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
         freq_idx = freq_idx + 1
-    # move task t to the next island
-    # move_task_between_islands(t)
+    l_idx = l_idx +1
 
 if not running:
     print ('no feasiable solution was found :(')
