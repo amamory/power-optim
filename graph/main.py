@@ -5,35 +5,6 @@ import math
 # libs
 import tree
 
-# Ignored constraints:
-# - affinity constraints
-# - update rel_deadline every time an island freq change
-# - only one dag
-# - precedence constraint is ignored
-# - no gpu or fpga
-# - how to get z ?
-
-# % from: the leaving node for each edge
-# % to: the entering node for each edge
-# % list of edges indicating which nodes are connected
-# e =  [| 1, 2
-#       | 1, 3
-#       | 2, 4
-#       | 2, 5
-#       | 3, 4
-#       | 3, 5 |]; 
-
-# % http://www.webgraphviz.com/
-# % digraph G {
-# %   "0" -> "1"
-# %   "0" -> "2"
-# %   "1" -> "3"
-# %   "1" -> "4"
-# %   "2" -> "3"
-# %   "2" -> "4"
-# % }
-
-
 edge_list = [
     (0,1),
     (0,2),
@@ -154,7 +125,7 @@ n_islands = len(islands)
 # debug mode
 debug = False
 
-# TODO not used
+# TODO not used - use it in utilization constraint for PU
 unrelated = [
     [ 0 ], 
     [ 9 ], 
@@ -207,13 +178,6 @@ def calc_wcet(t,p,m) -> int:
     i = get_island(p)
     # that's somehow arbitrary definition
     f_ref = G.graph['ref_freq']
-
-    # get the index when the value == 1. get the freqs of an island i
-    # res = [x for x in range(len(freq_mat[i])) if freq_mat[i][x] == 1] 
-    # #print (res)
-    # if len(res) != 1:
-    #     print('ERROR: expecting size 1')
-    #     sys.exit(0)
     # get the frequency assigned to the island i
     f = islands[i]['freqs'][freqs_per_island_idx[i]]
     capacity = islands[i]['capacity']
@@ -266,23 +230,21 @@ def island_power(i) -> float:
     deployed_tasks = [x for x in islands[i]['placement']] 
     
     # get the assigned freq and scales it down linearly with the the island max frequency
+    # TODO read the power from a matrix
     freq_scale_down = float(islands[i]['freqs'][freqs_per_island_idx[i]]) / float(islands[i]['freqs'][len(islands[i]['freqs'])-1])
     busy_power = islands[i]['busy_power'] * freq_scale_down
     idle_power = islands[i]['idle_power'] * freq_scale_down
 
     utilization = 0.0
-    z=1
     activation_period = G.graph['activation_period']
     for t in deployed_tasks:
         # assumes that wcet was calculated previously
         wcet = G.nodes[t]['wcet']
-        # TODO get z
-        # TODO activation_period is the DAG period or the task deadline ?!?!
-        utilization = utilization + (z*float(wcet)/float(activation_period))
+        utilization = utilization + (float(wcet)/float(activation_period))
     #print (deployed_tasks, wcet, z, activation_period, utilization)
 
-    # TODO is it correct to divide the utilization by the number of PUs ?!??!
-    return idle_power + (busy_power-idle_power) * float(utilization/float(islands[i]['n_pus']))
+    # TODO put a comment about (islands[i]['n_pus'] * idle_power)
+    return (islands[i]['n_pus'] * idle_power) + (busy_power-idle_power) * float(utilization)
 
 
 # # return power consumed by the pu p
@@ -384,7 +346,7 @@ def define_wcet() -> None:
 
 # assign relative deadline to each node
 # potentially optmized version using 'shortest path' algorithms instead of 'all paths'
-# compexity O(n*(n+v))
+# compexity O(n*(n+e))
 # return false if the deadline is not feasible
 # TODO: code critical_path function based on the node weight rather than using shortest path based on edge weight
 # https://stackoverflow.com/questions/6007289/calculating-the-critical-path-of-a-graph
@@ -661,9 +623,10 @@ def define_rel_deadlines(G) -> bool:
 #     print (n, G.nodes[n]["rel_deadline"])
 
 # define_rel_deadlines(G)
-# print ('NEW RELATIVE DEADLINES:')
+# print ('NEW RELATIVE DEADLINES2:')
 # for n in G.nodes:
 #     print (n, G.nodes[n]["rel_deadline"])
+# sys.exit(1)
 
 # return false if task t was already in the last island
 # def move_task_between_islands(t) -> bool:
@@ -729,6 +692,10 @@ for l in leaf_list:
         # find the critical path and check whether the solution might be feasible.
         # If so, divide the dag deadline proportionly to the weight of each node in the critical path
         feasible = define_rel_deadlines(G) # TODO could have some variability in rel deadline assingment
+        print ('WCET and REL DEADLINE:')
+        for n in G.nodes:
+            print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
+        sys.exit(1)
         # TODO check the island/processor capacity feasibility
         if feasible: 
             # Since this solutions is feasible, check whether this was the lowest power found so far.
