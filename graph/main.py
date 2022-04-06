@@ -1,5 +1,4 @@
 import sys
-from xmlrpc.client import boolean
 import networkx as nx
 import pandas as pd
 import math
@@ -92,7 +91,6 @@ G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
 
 nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
 
-
 G.graph['activation_period'] = 100
 G.graph['deadline'] = 100
 # the reference freq is the freq of the 1st island at its highest freq
@@ -131,7 +129,6 @@ island3['freqs'] = [100, 200, 300]
 island3['placement'] = [] # the tasks placed in this island
 islands.append(island3)
 
-
 total_pus = 0
 max_n_freq = 0
 for i in islands:
@@ -141,28 +138,6 @@ for i in islands:
 print ('islands:')
 for i in islands:
     print (i)
-
-# x_i,u: init proc deploy matrix w zeros
-deploy_mat = [ [0]*total_pus for i in range(len(node_names))]
-# assign t0 to p0, t1 to p1, etc
-pu = 0
-for t in range(len(deploy_mat)):
-    deploy_mat[t][pu] = 1
-    pu = (pu + 1) % total_pus
-
-print ('deploy_mat:')
-for i in range(len(deploy_mat)):
-    print (deploy_mat[i])
-
-# y_s,m: init the freq assigned to a island
-#freq_mat = [ [0]*max_n_freq for i in range(len(islands))]
-# assign each island to the minimal freq
-# for f in range(len(freq_mat)):
-#     freq_mat[f][0] = 1
-
-# print ('freq_mat:')
-# for i in range(len(freq_mat)):
-#     print (freq_mat[i])
 
 # sort the islands by idle_power
 islands = sorted(islands, key = lambda ele: ele['idle_power'])
@@ -223,7 +198,6 @@ def get_island(p):
     print ('ERROR: should never reach here', p)
     sys.exit(0)
 
-
 # task t, processing unit p, operating performance points (freq) m
 # TODO: probably it makes more sense to replace a processing unit index by an island index
 def calc_wcet(t,p,m) -> int:
@@ -247,17 +221,9 @@ def calc_wcet(t,p,m) -> int:
 
     return wcet_ns + (capacity * (wcet-wcet_ns)/f * f_ref)
 
-for i in range(len(node_names)):
-    wcets = [
-            int(calc_wcet(i,0,0)), int(calc_wcet(i,0,0)), 
-            int(calc_wcet(i,2,0)), int(calc_wcet(i,2,0)), 
-            int(calc_wcet(i,4,0)), int(calc_wcet(i,4,0))
-            ]
-    print ('task:', i , 'wcets:', wcets)
-#sys.exit(1)
-
 # return whether the pu was overloaded or not
-def pu_utilization(p) -> boolean:
+# TODO update it with the respect of the latest code 6/Aprile
+def pu_utilization(p) -> bool:
 
     # get the index of the tasks deployed in PU p
     deployed_tasks = [x for x in range(len(deploy_mat)) if deploy_mat[x][p] == 1] 
@@ -311,6 +277,7 @@ def island_power(i) -> float:
         # assumes that wcet was calculated previously
         wcet = G.nodes[t]['wcet']
         # TODO get z
+        # TODO activation_period is the DAG period or the task deadline ?!?!
         utilization = utilization + (z*float(wcet)/float(activation_period))
     #print (deployed_tasks, wcet, z, activation_period, utilization)
 
@@ -350,62 +317,7 @@ def define_power() ->  float:
         total_power = total_power +  island_power(i)
     return total_power
 
-#
-# Heusristic 
-#
-
-
-# print ('islands:')
-# for i in islands:
-#     print (i)
-
-# assign each island to the minimal freq
-# for f in range(len(freq_mat)):
-#     freq_mat[f][0] = 1
-
-
-# # TODO
-# def create_minizinc_model():
-#     pass
-
-# # TODO
-# def run_minizinc()-> bool:
-#     return False
-
-# # TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
-# def inc_island_idx() -> bool:
-#     # points to the last incremented island
-#     inced = 0
-#     for i in range(n_islands):
-#         # if there is no task placed in this island, skip it if this is not the last island
-#         if len(islands[i]['placement'])==0:
-#             if i == n_islands-1:
-#                 return False
-#             else:
-#                 continue
-#         # if island idx i is not pointing to its max freq, then point to the next higher freq of this island
-#         if freqs_per_island_idx[i] < (n_freqs_per_island[i]-1):
-#             freqs_per_island_idx[i] = freqs_per_island_idx[i] +1
-#             inced = i
-#             break
-#         else:
-#             # if this is not the last island, then go to the next island to increment its freq
-#             if i >= (n_islands-1):
-#                 return False
-                
-#     # all island before the last incremented island must start over at their lowest freq
-#     for i in range(inced):
-#         freqs_per_island_idx[i] = 0
-
-#     # assign the selected freq to the binary matrix
-#     freq_mat = [ [0]*max_n_freq for i in range(len(islands))]
-#     for i in range(n_islands):
-#         freq_mat[i][freqs_per_island_idx[i]] = 1
-
-#     return True
-
 # TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
-#def create_frequency_sequence(freq_seq):
 def create_frequency_sequence() -> list():
     freq_seq = []
     stop = False
@@ -432,45 +344,9 @@ def create_frequency_sequence() -> list():
         # if all freqs are at their maximal value, then stop
         if stop:
             break
-
     # want to get have the maximal freq for each island 1st, to prune the search space faster
     reversed_freq_seq = list(reversed(freq_seq))
     return reversed_freq_seq
-
-# take the first element for sort
-# def take_first(elem):
-#     return elem[0]
-
-# get the task indexes such that these indexes are sorted by wcet_ref
-# for instance, [3,4,2,5,2,6,1] returns [6,2,4,0,1,3,5]
-# def sort_task_and_return_idx(wcet):
-#     # add the 'visited' tag to each value by creating a touple (int,bool)
-#     wcet_tagged = [(wcet[i],False) for i in range(len(wcet))]
-#     wcet_sorted = sorted(wcet_tagged,key=take_first)
-#     # the result to be returned
-#     sorted_idx = []
-#     while(len(wcet_sorted)>0):
-#         # get the position where the lowest value can be found
-#         idx = -1
-#         for i in range(len(wcet_tagged)):
-#             if wcet_tagged[i][0] == wcet_sorted[0][0] and not wcet_tagged[i][1]:
-#                 idx = i
-#                 # mark as visited before
-#                 wcet_tagged[i] = (wcet_tagged[i][0],True)
-#                 break
-#         if idx < 0:
-#             print ("ERROR: check the function 'sort_task_and_return_idx'")
-#             sys.exit(1)
-#         sorted_idx.append(idx)
-#         # delete the 1st node and continue until this list is empty
-#         wcet_sorted = wcet_sorted[1:]
-    
-#     return sorted_idx
-
-# testing = [3,4,2,5,2,6,1]
-# testing_sorted = sort_task_and_return_idx(testing)
-# print (testing)
-# print (testing_sorted)
 
 # define the wcet of each task based on in which island the task is placed
 def define_wcet() -> None:
@@ -624,7 +500,7 @@ def define_rel_deadlines2(G) -> bool:
     return True
 
 # assign relative deadline to each node
-# not scalable code with compexity O(n!)
+# TODO not scalable code with compexity O(n!)
 # return false if the deadline is not feasible
 def define_rel_deadlines(G) -> bool:
     # main steps:   
@@ -693,10 +569,6 @@ def define_rel_deadlines(G) -> bool:
         paths_from_last_nodes.append(path_list)
         all_paths_list = all_paths_list + path_list
 
-    # print ('ALL PATHS:', len(all_paths_list))
-    # for p in all_paths_list:
-    #     print (p)
-    # sys.exit(1)
     ####################
     # 3) for each node, assign its max path wcet
     ####################
@@ -793,11 +665,6 @@ def define_rel_deadlines(G) -> bool:
 # for n in G.nodes:
 #     print (n, G.nodes[n]["rel_deadline"])
 
-# define_wcet()
-# print ('WCET:')
-# for n in G.nodes:
-#     print (n, G.nodes[n]["wcet"])
-
 # return false if task t was already in the last island
 # def move_task_between_islands(t) -> bool:
 #     found = False
@@ -813,17 +680,6 @@ def define_rel_deadlines(G) -> bool:
 #     if not found:
 #         print('WARNING: task',t, 'not assigned to any island')
 #     return True
-
-
-# sort tasks in increasing wcet_ref
-# the scalable and non scalable parts are added
-# wcet_ref_summed_up = [wcet[i]+wcet_ns[i] for i in range(len(node_names))]
-# sorted_tasks_by_wcet_ref = sort_task_and_return_idx(wcet_ref_summed_up)
-# print(sorted_tasks_by_wcet_ref)
-# sys.exit(1)
-
-# place all tasks into the 1st island, the one with lowest capacity
-# islands[0]['placement'] = range(len(node_names))
 
 # The number of combinations of t tasks in i islands
 # is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
@@ -848,8 +704,6 @@ leaf_list = tree.task_island_combinations(n_islands,len(G.nodes))
 search_space_size = len(leaf_list)
 # this is the sequence the set of frequencies must be evaluated
 freq_seq = create_frequency_sequence()
-# for i in freq_seq:
-#     print (i)
 
 best_power = 999999.0
 best_task_placement = [0]*n_islands
@@ -877,7 +731,7 @@ for l in leaf_list:
         feasible = define_rel_deadlines(G) # TODO could have some variability in rel deadline assingment
         # TODO check the island/processor capacity feasibility
         if feasible: 
-            # TODO since this solutions is feasible, check whether this was the lowest power found so far.
+            # Since this solutions is feasible, check whether this was the lowest power found so far.
             # If so, update the best solution
             power = define_power()
             if power < best_power:
