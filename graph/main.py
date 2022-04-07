@@ -2,6 +2,8 @@ import sys
 import networkx as nx
 import pandas as pd
 import math
+import time
+
 # libs
 import tree
 
@@ -186,25 +188,50 @@ def calc_wcet(t,p,m) -> int:
     return wcet_ns + (capacity * (wcet-wcet_ns)/f * f_ref)
 
 # return whether the pu was overloaded or not
-# TODO update it with the respect of the latest code 6/Aprile
+# TODO review the need of calculating this per pu
 def pu_utilization(p) -> bool:
 
-    # get the index of the tasks deployed in PU p
-    deployed_tasks = [x for x in range(len(deploy_mat)) if deploy_mat[x][p] == 1] 
+    # TODO p, not used for now .... 
+    start_time = time.time()
+    #for u_path in unrelated:
+    #    utilization.append(sum([ float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']) for t in u_path if G.nodes[t]['rel_deadline'] != 0])  )
     
-    utilization = 0.0
-    for t in deployed_tasks:
-        new_wcet = calc_wcet(t,p,0)
-        # TODO rel_deadline must be updated every time an island freq change
-        deadline = G.nodes[t]['rel_deadline']
-        utilization = utilization + (float(new_wcet)/float(deadline))
-    print (deployed_tasks, new_wcet, deadline, utilization)
-    if utilization > 1.0:
-        if debug:
-            print ('WARNING: pu', p, 'has exeeded the utilization in', utilization)
-        return False
-    else:
-        return True
+    # get the utilization for each unreleated path
+    start_time = time.time()
+    for idx, u_path in enumerate(unrelated):
+        utilization = 0.0
+        for t in u_path:
+            if G.nodes[t]['rel_deadline'] != 0:
+                utilization = utilization + (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))        
+        # stop as soon as one utilization is > 1.0
+        if utilization > 1.0:
+            elapsed_time = time.time() - start_time
+            #print('UTILIZATION')
+            #print (utilization, u_path)
+            #for t in u_path:
+            #    if G.nodes[t]['rel_deadline'] != 0:
+            #        aux = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
+            #        print (t, aux)
+            if debug:
+                print ('WARNING: pu', p, 'has exeeded the utilization in', utilization)
+            temp_tuple = (terminate_counters[4][0]+1,terminate_counters[4][1]+elapsed_time)
+            terminate_counters[4] = temp_tuple
+            return False
+    #if max(utilization) > 1.0:
+    #    # TODO: DISCUSS ===> Is it possible to postpone task assingment for this constraint check ?!?!?!
+    #    # let's say that 3 tasks break the utilization constraint. they might be assigned to:
+    #    #  - the same island, but diff processors. So, the PU utilization constraint might not be broken after all
+    #    #  - they might be assigned different islands. Again, the PU utilization constraint might not be broken
+    #    # The PU utilization constraint will be broken only when 'enough' tasks is assigned to the same processor.
+    #    if debug:
+    #        print ('WARNING: pu', p, 'has exeeded the utilization in', utilization)
+    #    temp_tuple = (terminate_counters[4][0]+1,terminate_counters[4][1]+elapsed_time)
+    #    terminate_counters[4] = temp_tuple
+    #    sys.exit(1)
+    #    return False
+    #else:
+        
+    return True
 
 # pu_u = pu_utilization(0)
 # print (pu_utilization(0))
@@ -486,8 +513,9 @@ def define_rel_deadlines(G) -> bool:
 
     # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
     max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
+    start_time = time.time()
     max_task_wcet = max([H.nodes[n]["wcet"] for n in H.nodes])
-    # print ("MAX:", max_weight)
+    elapsed_time = time.time() - start_time
 
     # if a single task is longer than the dag deadline, then this is not a solution
     if (max_task_wcet > dag_deadline):
@@ -495,6 +523,8 @@ def define_rel_deadlines(G) -> bool:
             print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
             for t in H.nodes:
                 print (t, H.nodes[t]["wcet"])
+        temp_tuple = (terminate_counters[0][0]+1,terminate_counters[0][1]+elapsed_time)
+        terminate_counters[0] = temp_tuple
         return False
 
     # assign the edge weight as the sum of the node weights
@@ -505,11 +535,34 @@ def define_rel_deadlines(G) -> bool:
     for n in H.nodes:
         H.nodes[n]["rel_deadline"] = 0
 
-    critical_path = nx.shortest_path(H,0,last_node,weight='wcet')
+    # 
+    # This is the problem with shortest path for this problem:
+    # 
+    # PARTIAL PATH:
+    # (84, [0, 3, 8]) [0, 52, 32]
+    # 0 3 {'weight': 32}
+    # 3 8 {'weight': 0}
+    # 8 9 {'weight': 52}
+    # (116, [0, 3, 5, 7]) [0, 52, 32, 32]
+    # 0 3 {'weight': 32}
+    # 3 5 {'weight': 0}
+    # 5 7 {'weight': 20}  <=== problem
+    # 7 9 {'weight': 52}
+    # 
+    # This will make the algorithm not find the critical path since the edge 
+    # weights are not correctly assigned
+
+    start_time = time.time()
+    critical_path = nx.shortest_path(H,0,last_node,weight='weight')
     wcet_critical_path = sum([H.nodes[n1]["wcet"] for n1 in critical_path])
+    elapsed_time = time.time() - start_time
+    #print ('CRITICAL PATH:')
+    #print (wcet_critical_path,critical_path)
     if wcet_critical_path > dag_deadline:
         if debug:
             print ('WARNING: critical path', critical_path,'has lenght', wcet_critical_path, 'which is longer than then DAG deadline', dag_deadline)
+        temp_tuple = (terminate_counters[1][0]+1,terminate_counters[1][1]+elapsed_time)
+        terminate_counters[1] = temp_tuple            
         return False
 
     ####################
@@ -541,6 +594,7 @@ def define_rel_deadlines(G) -> bool:
     # a tuple to save the longest of all paths. format (path wcet, path)
     critical_path2 = (0,[])
     for n in range(1,len(H.nodes)-1):
+        start_time = time.time()
         # get all the paths where node n is found
         paths_of_node_n = [p for p in all_paths_list if n in p]
         # get the wcet for each path
@@ -550,10 +604,24 @@ def define_rel_deadlines(G) -> bool:
             path_wcet_sum.append((sum([H.nodes[n1]["wcet"] for n1 in p]), p))
         # get the path with the longest wcet
         max_partial_path = max(path_wcet_sum,key=lambda item:item[0])
+        elapsed_time = time.time() - start_time
         # if a path was found longer than the DAG deadline, this cannot be a feasible solution
         if max_partial_path[0] > dag_deadline:
             if debug:
                 print ('WARNING: critical path', max_partial_path[1], 'takes', max_partial_path[0],', longer than DAG deadline', dag_deadline)
+            temp_tuple = (terminate_counters[2][0]+1,terminate_counters[2][1]+elapsed_time)
+            terminate_counters[2] = temp_tuple
+            #print ('PARTIAL PATH:')
+            #for p in path_wcet_sum:
+            #    print (p, [H.nodes[n1]["wcet"] for n1 in p[1]])
+            #    p[1].append(9)
+            #    for idx in range(len(p[1])-1):
+            #        s = p[1][idx]
+            #        t = p[1][idx+1]
+            #        print(s,t,H.get_edge_data(s,t))
+            #print ('CRITICAL PATH:')
+            #print (wcet_critical_path, critical_path, [H.nodes[n1]["wcet"] for n1 in critical_path])    
+            #sys.exit(1)            
             return False
         # save the longest of all paths
         if max_partial_path[0] > critical_path2[0]:
@@ -606,6 +674,8 @@ def define_rel_deadlines(G) -> bool:
         if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
             if debug:
                 print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
+            temp_tuple = (terminate_counters[3][0]+1,0.0)
+            terminate_counters[3] = temp_tuple
             return False
 
     ############################
@@ -667,11 +737,41 @@ leaf_list = tree.task_island_combinations(n_islands,len(G.nodes))
 search_space_size = len(leaf_list)
 # this is the sequence the set of frequencies must be evaluated
 freq_seq = create_frequency_sequence()
+freq_cnts = [0]*len(freq_seq)
+
+# teminate search conditions used to understand the most prevalent ones
+n_terminate_cond = 5
+terminate_counters = [(0,0.0)] * n_terminate_cond
+terminate_counter_names = [
+['task wcet > dag deadline'],
+['critical path > dag deadline'],
+['partial path > dag deadline'],
+['task wcet > task rel deadline'],
+['pu utilization violation']
+]
+
+
+#for i in range(n_islands):
+#    islands[i]["placement"] = leaf_list[0].islands[i]
+#for i in range(len(freq_seq)):
+#    freqs_per_island_idx = freq_seq[i]
+#    define_wcet()
+#    feasible = define_rel_deadlines(G)
+#    feasible2 = pu_utilization(0)
+#    power = define_power()
+#    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+#sys.exit(1)
+
+
 
 best_power = 999999.0
 best_task_placement = [0]*n_islands
 best_freq_idx = []
 l_idx = 0
+solution_evaluations = 0
+potential_solutions = 0
+best_solutions = 0
+bad_solutions = 0
 for l in leaf_list:
     # assume the following task placement onto the set of islands
     for i in range(n_islands):
@@ -684,24 +784,31 @@ for l in leaf_list:
     feasible = True
     if l_idx%100 == 0:
         print ('Checking solution',l_idx, 'out of',search_space_size)
-    while feasible:
+    #if l_idx > 3000:
+    #    break
+    #while feasible:
+    for f in range(len(freq_seq)):
         # print ('searched freqs:')
-        freqs_per_island_idx = freq_seq[freq_idx]
+        freqs_per_island_idx = freq_seq[f]
+        if debug:
+            print ('PLACEMENT and FREQs')
+            for i in range(n_islands):
+                print(islands[i]["placement"])
+            print(freqs_per_island_idx)
         # define the wcet for each task based on which island each task is placed and the freq for each island
         define_wcet()
         # find the critical path and check whether the solution might be feasible.
         # If so, divide the dag deadline proportionly to the weight of each node in the critical path
         feasible = define_rel_deadlines(G) # TODO could have some variability in rel deadline assingment
-        print ('WCET and REL DEADLINE:')
-        for n in G.nodes:
-            print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
-        sys.exit(1)
-        # TODO check the island/processor capacity feasibility
+        # TODO check the island/processor utilization feasibility
+        feasible = pu_utilization(0) and feasible
         if feasible: 
+            potential_solutions = potential_solutions +1
             # Since this solutions is feasible, check whether this was the lowest power found so far.
             # If so, update the best solution
             power = define_power()
             if power < best_power:
+                best_solutions = best_solutions +1
                 best_power = power
                 # save the best task placement onto the set of islands and the best frequency assignment
                 for i in range(n_islands):
@@ -713,13 +820,31 @@ for l in leaf_list:
                     for n in G.nodes:
                         print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
         else:
+            bad_solutions =bad_solutions +1
             if debug:
                 print ('not a solution:')
             
         freq_idx = freq_idx + 1
+        solution_evaluations = solution_evaluations +1
+    freq_cnts[freq_idx-1] = freq_cnts[freq_idx-1] +1
     l_idx = l_idx +1
 
 if best_power < 999999.0:
     print ('solution found with power',best_power, best_task_placement, best_freq_idx)
 else:
     print ('no feasiable solution was found :(')
+    
+print ('terminate counters:')
+for idx,i in enumerate(terminate_counters):
+    if i[0] == 0:
+        print (terminate_counter_names[idx],i)
+    else:
+        print (terminate_counter_names[idx], i , i[1]/float(i[0]))
+print ('total candidates evaluated', solution_evaluations, 'bad candidates', bad_solutions, 'potential solution', potential_solutions, 'best solutions', best_solutions)
+print ('number of frequencies evaluated per task placement:', float(solution_evaluations)/float(l_idx))
+sum_freqs = sum(freq_cnts)
+print ('freq histogram (unfeasible candidates):')
+for i in range(len(freq_cnts)):
+    if freq_cnts[i] != 0 :
+        print ("{:.2f}".format(freq_cnts[i]/sum_freqs), freq_seq[i])
+        
