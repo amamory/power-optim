@@ -1,0 +1,43 @@
+tasks:
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 15 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+dags:
+  - activation_period: 100
+    deadline: 100
+    ref_freq: 1000     
+    edge_list:
+     [
+      [0,1],
+      [0,2],
+      [0,3],
+      [1,4],
+      [2,4],
+      [2,5],
+      [3,5],
+      [3,8],
+      [4,6],
+      [4,7],
+      [4,8],
+      [5,7],
+      [6,9],
+      [7,9],
+      [8,9]
+     ]

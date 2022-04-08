@@ -1,0 +1,10 @@
+hw:
+  - capacity: 1.0
+    n_pus: 2
+    power_file: "ex1-island0.csv"
+  - capacity: 0.5
+    n_pus: 2
+    power_file: "ex1-island1.csv"
+  - capacity: 0.2
+    n_pus: 2
+    power_file: "ex1-island2.csv"

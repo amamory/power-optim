@@ -1,0 +1,7 @@
+hw:
+  - capacity: 1.0
+    n_pus: 4
+    power_file: "big.csv"
+  - capacity: 0.3
+    n_pus: 4
+    power_file: "little.csv"

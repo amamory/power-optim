@@ -1,128 +1,227 @@
 import sys
+import os
 import networkx as nx
 import pandas as pd
 import math
 import time
+import yaml
 
 # libs
 import tree
 
-edge_list = [
-    (0,1),
-    (0,2),
-    (0,3),
-    (1,4),
-    (2,4),
-    (2,5),
-    (3,5),
-    (3,8),
-    (4,6),
-    (4,7),
-    (4,8),
-    (5,7),
-    (6,9),
-    (7,9),
-    (8,9)
-]
 
-sources = [x[0] for x in edge_list]
-targets = [x[1] for x in edge_list]
-# edge attribute not used
-weights = [1 for x in range(len(edge_list))]
-print ('sources:',sources)
-print ('targets:',targets)
+sw = None
+with open('ex1-sw.yaml') as file:
+    try:
+        sw = yaml.safe_load(file)   
+    except yaml.YAMLError as exc:
+        print(exc)
 
-linkData = pd.DataFrame({'source' : sources,
-                  'target' : targets,
-                  'weight' :weights})
+# load power-related data from the CSV into the islands list of dict
+print ('TASKs:')
+for idx, i in enumerate(sw['tasks']):
+    # i['rel_deadline'] = 0.0
+    # i['wcet'] = 0
+    print ('Task:',idx)
+    print (' -',i)
 
-# use the set to get unique node ids
-node_names = {e for l in edge_list for e in l}
-# then get ride of the set and transform it into a array
-node_names = list(node_names)
-print ('node names:',node_names)
-wcet = [10 for x in range(len(node_names))]
-wcet[3] = 15
-wcet_ns = [3 for x in range(len(node_names))]
-rel_deadline = [x*3 for x in wcet]
-# island = [0 for x in range(len(node_names))]
-# proc = [0 for x in range(len(node_names))]
-nodes_attrib = [1 for x in range(len(node_names))]
+print ('')
+print ('DAGs:')
+G = None
+for idx, i in enumerate(sw['dags']):
+    print ('DAG:',idx)
+    # DAG edges
+    print (' - edges:',len(i['edge_list']))
+    edge_list = []
+    for e in i['edge_list']:
+        print("   -", tuple(e))
+        edge_list.append(tuple(e))
+    sources = [x[0] for x in edge_list]
+    targets = [x[1] for x in edge_list]
+    weights = [0 for x in range(len(edge_list))] # defined in runtime
+    linkData = pd.DataFrame({'source' : sources,
+                    'target' : targets,
+                    'weight' :weights})
 
-nodeData = pd.DataFrame({'name' : node_names,
-                  'wcet_ref' : wcet,     # wcet at the reference freq
-                  'wcet_ref_ns' : wcet_ns,
-                  'rel_deadline': rel_deadline,
-                  'wcet': nodes_attrib # decision variables
-                #   'island': island,  # decision variables
-                #   'proc': proc,      # decision variables
-                #   'arrival_time': nodes_attrib,
-                #   'finish_time': nodes_attrib
-                  })
+    # DAG nodes
+    # use the set to get unique node ids
+    node_names = {e for l in edge_list for e in l}
+    # then get ride of the set and transform it into a array
+    node_names = list(node_names)
+    print (' - node names:',node_names)
+    wcet = [sw['tasks'][t]['wcet_ref'] for t in range(len(sw['tasks'])) if t in node_names]
+    wcet_ns = [sw['tasks'][t]['wcet_ref_ns'] for t in range(len(sw['tasks'])) if t in node_names]
+    zeros = [0]*len(node_names)
+    nodeData = pd.DataFrame({'name' : node_names,
+                    'wcet_ref' : wcet,     # wcet at the reference freq
+                    'wcet_ref_ns' : wcet_ns, # non scalable part of the wcet
+                    'rel_deadline': zeros, # defined in runtime
+                    'wcet': zeros # defined in runtime
+                    })
+    G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
+    nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
+    # transform the graph into adjacency_matrix for better printing
+    # sparse_adj_mat = nx.adjacency_matrix(G)
+    # array_adj_mat = sparse_adj_mat.toarray('C')
+    # print (array_adj_mat)
 
-G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
+    # other DAG attributes
+    print (' - activation_period:',i['activation_period'])
+    print (' - deadline:',i['deadline'])
+    print (' - ref_freq:',i['ref_freq'])
+    G.graph['activation_period'] = i['activation_period']
+    G.graph['deadline'] = i['deadline']
+    # the reference freq is the freq used to characterize this application
+    G.graph['ref_freq'] = i['ref_freq']
 
-nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
 
-G.graph['activation_period'] = 100
-G.graph['deadline'] = 100
-# the reference freq is the freq of the 1st island at its highest freq
-# considering which island ?!?!? let us say it's the 1st island of the list of islands
-G.graph['ref_freq'] = 1000
+
+# edge_list = [
+#     (0,1),
+#     (0,2),
+#     (0,3),
+#     (1,4),
+#     (2,4),
+#     (2,5),
+#     (3,5),
+#     (3,8),
+#     (4,6),
+#     (4,7),
+#     (4,8),
+#     (5,7),
+#     (6,9),
+#     (7,9),
+#     (8,9)
+# ]
+
+# sources = [x[0] for x in edge_list]
+# targets = [x[1] for x in edge_list]
+# # edge attribute not used
+# weights = [1 for x in range(len(edge_list))]
+# print ('sources:',sources)
+# print ('targets:',targets)
+
+# linkData = pd.DataFrame({'source' : sources,
+#                   'target' : targets,
+#                   'weight' :weights})
+
+# # use the set to get unique node ids
+# node_names = {e for l in edge_list for e in l}
+# # then get ride of the set and transform it into a array
+# node_names = list(node_names)
+# print ('node names:',node_names)
+# wcet = [10 for x in range(len(node_names))]
+# wcet[3] = 15
+# wcet_ns = [3 for x in range(len(node_names))]
+# rel_deadline = [x*3 for x in wcet]
+# # island = [0 for x in range(len(node_names))]
+# # proc = [0 for x in range(len(node_names))]
+# nodes_attrib = [1 for x in range(len(node_names))]
+
+# nodeData = pd.DataFrame({'name' : node_names,
+#                   'wcet_ref' : wcet,     # wcet at the reference freq
+#                   'wcet_ref_ns' : wcet_ns, # non scalable part of the wcet
+#                   'rel_deadline': rel_deadline, # decision variables
+#                   'wcet': nodes_attrib # decision variables
+#                   })
+
+# G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
+
+# nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
+
+# G.graph['activation_period'] = 100
+# G.graph['deadline'] = 100
+# # the reference freq is the freq of the 1st island at its highest freq
+# # considering which island ?!?!? let us say it's the 1st island of the list of islands
+# G.graph['ref_freq'] = 1000
 
 # sparse_adj_mat = nx.adjacency_matrix(G)
 # array_adj_mat = sparse_adj_mat.toarray('C')
 # print (array_adj_mat)
 
-islands = []
-island1 = {}
-island1['capacity'] = 1.0
-island1['n_pus'] = 2
-island1['busy_power'] = 100 # TODO review grabriele's paper to get the funtion of power compared to freq
-island1['idle_power'] = 20
-island1['freqs'] = [100, 500, 1000]
-island1['placement'] = [] # the tasks placed in this island
-islands.append(island1)
+# load the hardware definition file
+islands = None
+with open('ex1-hw.yaml') as file:
+    try:
+        islands = yaml.safe_load(file)   
+    except yaml.YAMLError as exc:
+        print(exc)
 
-island2 = {}
-island2['capacity'] = 0.2
-island2['n_pus'] = 2
-island2['busy_power'] = 20
-island2['idle_power'] = 2
-island2['freqs'] = [50, 100, 200]
-island2['placement'] = [] # the tasks placed in this island
-islands.append(island2)
+# load power-related data from the CSV into the islands list of dict
+print ('')
+print ('ISLANDS:')
+for i in islands['hw']:
+    # print (i)
+    if not os.path.isfile(i['power_file']):
+        print ('ERROR: file', i['power_file'], 'not found')
+        sys.exit(1)
+    data=pd.read_csv(i['power_file'])
+    if  len(data.keys()) != 3 or data.keys()[0] != 'freq' or data.keys()[1] != 'busy_power_avg' or data.keys()[2] != 'idle_power_avg':
+        print ('ERROR: file', i['power_file'], 'has an invalid syntax')
+        sys.exit(1)
+    #print(data)
+    i['busy_power'] = list(data.busy_power_avg)
+    i['idle_power'] = list(data.idle_power_avg)
+    i['freqs'] = list(data.freq)
+    i['placement'] = []
+    del(i['power_file'])
 
-island3 = {}
-island3['capacity'] = 0.5
-island3['n_pus'] = 2
-island3['busy_power'] = 50
-island3['idle_power'] = 5
-island3['freqs'] = [100, 200, 300]
-island3['placement'] = [] # the tasks placed in this island
-islands.append(island3)
+for idx, i in enumerate(islands['hw']):
+    print ('island:', idx)
+    #for atribs in i:
+    for key, value in i.items():
+        print(" -", key, ":", value)
+
+
+# islands = []
+# island1 = {}
+# island1['capacity'] = 1.0
+# island1['n_pus'] = 2
+# island1['busy_power'] = 100 # TODO review grabriele's paper to get the funtion of power compared to freq
+# island1['idle_power'] = 20
+# island1['freqs'] = [100, 500, 1000]
+# island1['placement'] = [] # the tasks placed in this island
+# islands.append(island1)
+
+# island2 = {}
+# island2['capacity'] = 0.2
+# island2['n_pus'] = 2
+# island2['busy_power'] = 20
+# island2['idle_power'] = 2
+# island2['freqs'] = [50, 100, 200]
+# island2['placement'] = [] # the tasks placed in this island
+# islands.append(island2)
+
+# island3 = {}
+# island3['capacity'] = 0.5
+# island3['n_pus'] = 2
+# island3['busy_power'] = 50
+# island3['idle_power'] = 5
+# island3['freqs'] = [100, 200, 300]
+# island3['placement'] = [] # the tasks placed in this island
+# islands.append(island3)
 
 total_pus = 0
 max_n_freq = 0
-for i in islands:
+# for i in islands:
+#     total_pus = total_pus + i['n_pus']
+#     max_n_freq = max(max_n_freq, len(i['freqs']))
+
+for i in islands['hw']:
     total_pus = total_pus + i['n_pus']
     max_n_freq = max(max_n_freq, len(i['freqs']))
 
-print ('islands:')
-for i in islands:
-    print (i)
-
-# sort the islands by idle_power
-islands = sorted(islands, key = lambda ele: ele['idle_power'])
+# sort the islands by capacity. also drop the 'hw' level from it
+islands = sorted(islands['hw'], key = lambda ele: ele['capacity'])
 
 # get the number of freq of each island
 n_freqs_per_island = [len(i['freqs']) for i in islands]
 
-# index to the current freq in each island
-# initialize them to the minimal freq, which is ALWAYS the first one
-freqs_per_island_idx = [0]* len(islands)
 # number of islands ... to avoid using len(islands) in the middle of the optim algo
 n_islands = len(islands)
+# index to the current freq in each island
+# initialize them to the minimal freq, which is ALWAYS the first one
+freqs_per_island_idx = [0]* n_islands
 
 # debug mode
 debug = False
@@ -159,7 +258,7 @@ for k,v in G.nodes(data=True):
 def get_island(p):
     if p >= total_pus:
         print ('ERROR: invalid # of PUs', p)
-        sys.exit(0)
+        sys.exit(1)
     i_id = 0
     n = 0
     for i in islands:
@@ -169,7 +268,7 @@ def get_island(p):
         i_id = i_id +1
     
     print ('ERROR: should never reach here', p)
-    sys.exit(0)
+    sys.exit(1)
 
 # task t, processing unit p, operating performance points (freq) m
 # TODO: probably it makes more sense to replace a processing unit index by an island index
@@ -241,9 +340,9 @@ def island_power(i) -> float:
     
     # get the assigned freq and scales it down linearly with the the island max frequency
     # TODO read the power from a matrix
-    freq_scale_down = float(islands[i]['freqs'][freqs_per_island_idx[i]]) / float(islands[i]['freqs'][len(islands[i]['freqs'])-1])
-    busy_power = islands[i]['busy_power'] * freq_scale_down
-    idle_power = islands[i]['idle_power'] * freq_scale_down
+    # freq_scale_down = float(islands[i]['freqs'][freqs_per_island_idx[i]]) / float(islands[i]['freqs'][len(islands[i]['freqs'])-1])
+    busy_power = islands[i]['busy_power'][freqs_per_island_idx[i]]
+    idle_power = islands[i]['idle_power'][freqs_per_island_idx[i]]
 
     utilization = 0.0
     activation_period = G.graph['activation_period']
@@ -680,6 +779,7 @@ search_space_size = len(leaf_list)
 # this is the sequence the set of frequencies must be evaluated
 freq_seq = create_frequency_sequence()
 freq_cnts = [0]*len(freq_seq)
+print ('Frequency sequences:', len(freq_seq))
 
 # teminate search conditions used to understand the most prevalent ones
 n_terminate_cond = 5
@@ -706,7 +806,7 @@ terminate_counter_names = [
 #sys.exit(1)
 
 
-best_power = 999999.0
+best_power = float("inf")
 best_task_placement = [0]*n_islands
 best_freq_idx = []
 l_idx = 0
@@ -724,7 +824,7 @@ for l in leaf_list:
     # assigning their maximal frequencies, then this task placement cannot be a valid solution and
     # the search skip to the next task placement combination
     if l_idx%100 == 0:
-        print ('Checking solution',l_idx, 'out of',search_space_size)
+        print ('Checking solution',l_idx, 'out of',search_space_size, 'possible mappings')
     if l_idx > 1000:
         break
     for f in range(len(freq_seq)):
