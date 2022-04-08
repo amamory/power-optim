@@ -17,14 +17,13 @@ with open('ex1-sw.yaml') as file:
     except yaml.YAMLError as exc:
         print(exc)
 
-# load power-related data from the CSV into the islands list of dict
+# load the task definition
 print ('TASKs:')
 for idx, i in enumerate(sw['tasks']):
-    # i['rel_deadline'] = 0.0
-    # i['wcet'] = 0
     print ('Task:',idx)
     print (' -',i)
 
+# load the DAG definition
 print ('')
 print ('DAGs:')
 G = None
@@ -74,71 +73,6 @@ for idx, i in enumerate(sw['dags']):
     # the reference freq is the freq used to characterize this application
     G.graph['ref_freq'] = i['ref_freq']
 
-
-
-# edge_list = [
-#     (0,1),
-#     (0,2),
-#     (0,3),
-#     (1,4),
-#     (2,4),
-#     (2,5),
-#     (3,5),
-#     (3,8),
-#     (4,6),
-#     (4,7),
-#     (4,8),
-#     (5,7),
-#     (6,9),
-#     (7,9),
-#     (8,9)
-# ]
-
-# sources = [x[0] for x in edge_list]
-# targets = [x[1] for x in edge_list]
-# # edge attribute not used
-# weights = [1 for x in range(len(edge_list))]
-# print ('sources:',sources)
-# print ('targets:',targets)
-
-# linkData = pd.DataFrame({'source' : sources,
-#                   'target' : targets,
-#                   'weight' :weights})
-
-# # use the set to get unique node ids
-# node_names = {e for l in edge_list for e in l}
-# # then get ride of the set and transform it into a array
-# node_names = list(node_names)
-# print ('node names:',node_names)
-# wcet = [10 for x in range(len(node_names))]
-# wcet[3] = 15
-# wcet_ns = [3 for x in range(len(node_names))]
-# rel_deadline = [x*3 for x in wcet]
-# # island = [0 for x in range(len(node_names))]
-# # proc = [0 for x in range(len(node_names))]
-# nodes_attrib = [1 for x in range(len(node_names))]
-
-# nodeData = pd.DataFrame({'name' : node_names,
-#                   'wcet_ref' : wcet,     # wcet at the reference freq
-#                   'wcet_ref_ns' : wcet_ns, # non scalable part of the wcet
-#                   'rel_deadline': rel_deadline, # decision variables
-#                   'wcet': nodes_attrib # decision variables
-#                   })
-
-# G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
-
-# nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
-
-# G.graph['activation_period'] = 100
-# G.graph['deadline'] = 100
-# # the reference freq is the freq of the 1st island at its highest freq
-# # considering which island ?!?!? let us say it's the 1st island of the list of islands
-# G.graph['ref_freq'] = 1000
-
-# sparse_adj_mat = nx.adjacency_matrix(G)
-# array_adj_mat = sparse_adj_mat.toarray('C')
-# print (array_adj_mat)
-
 # load the hardware definition file
 islands = None
 with open('ex1-hw.yaml') as file:
@@ -151,7 +85,6 @@ with open('ex1-hw.yaml') as file:
 print ('')
 print ('ISLANDS:')
 for i in islands['hw']:
-    # print (i)
     if not os.path.isfile(i['power_file']):
         print ('ERROR: file', i['power_file'], 'not found')
         sys.exit(1)
@@ -159,7 +92,6 @@ for i in islands['hw']:
     if  len(data.keys()) != 3 or data.keys()[0] != 'freq' or data.keys()[1] != 'busy_power_avg' or data.keys()[2] != 'idle_power_avg':
         print ('ERROR: file', i['power_file'], 'has an invalid syntax')
         sys.exit(1)
-    #print(data)
     i['busy_power'] = list(data.busy_power_avg)
     i['idle_power'] = list(data.idle_power_avg)
     i['freqs'] = list(data.freq)
@@ -168,45 +100,11 @@ for i in islands['hw']:
 
 for idx, i in enumerate(islands['hw']):
     print ('island:', idx)
-    #for atribs in i:
     for key, value in i.items():
         print(" -", key, ":", value)
 
-
-# islands = []
-# island1 = {}
-# island1['capacity'] = 1.0
-# island1['n_pus'] = 2
-# island1['busy_power'] = 100 # TODO review grabriele's paper to get the funtion of power compared to freq
-# island1['idle_power'] = 20
-# island1['freqs'] = [100, 500, 1000]
-# island1['placement'] = [] # the tasks placed in this island
-# islands.append(island1)
-
-# island2 = {}
-# island2['capacity'] = 0.2
-# island2['n_pus'] = 2
-# island2['busy_power'] = 20
-# island2['idle_power'] = 2
-# island2['freqs'] = [50, 100, 200]
-# island2['placement'] = [] # the tasks placed in this island
-# islands.append(island2)
-
-# island3 = {}
-# island3['capacity'] = 0.5
-# island3['n_pus'] = 2
-# island3['busy_power'] = 50
-# island3['idle_power'] = 5
-# island3['freqs'] = [100, 200, 300]
-# island3['placement'] = [] # the tasks placed in this island
-# islands.append(island3)
-
 total_pus = 0
 max_n_freq = 0
-# for i in islands:
-#     total_pus = total_pus + i['n_pus']
-#     max_n_freq = max(max_n_freq, len(i['freqs']))
-
 for i in islands['hw']:
     total_pus = total_pus + i['n_pus']
     max_n_freq = max(max_n_freq, len(i['freqs']))
@@ -219,14 +117,14 @@ n_freqs_per_island = [len(i['freqs']) for i in islands]
 
 # number of islands ... to avoid using len(islands) in the middle of the optim algo
 n_islands = len(islands)
-# index to the current freq in each island
+# global index to the current freq in each island
 # initialize them to the minimal freq, which is ALWAYS the first one
 freqs_per_island_idx = [0]* n_islands
 
 # debug mode
 debug = False
 
-# TODO not used - use it in utilization constraint for PU
+# used to account the DAG precedence constraint into PU utilization calculation
 unrelated = [
     [ 0 ], 
     [ 9 ], 
@@ -880,7 +778,7 @@ for l in leaf_list:
     l_idx = l_idx +1
 
 print("")
-if best_power < 999999.0:
+if best_solutions > 0:
     print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
 else:
     print ('no feasiable solution was found :(')
@@ -903,4 +801,3 @@ print ('freq histogram (unfeasible candidates):')
 for i in range(len(freq_cnts)):
     if freq_cnts[i] != 0 :
         print ("{:.2f}".format(freq_cnts[i]/sum_freqs), freq_seq[i])
-
