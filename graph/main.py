@@ -233,23 +233,6 @@ def pu_utilization(p) -> bool:
         
     return True
 
-# pu_u = pu_utilization(0)
-# print (pu_utilization(0))
-# print (pu_utilization(1))
-# # switching from the lowest freq to the 2nd lowest freq
-# freq_mat[0][0] = 0
-# freq_mat[0][1] = 1
-# print (pu_utilization(0))
-# print (pu_utilization(1))
-# # switching from the lowest freq to the 2nd lowest freq
-# freq_mat[0][1] = 0
-# freq_mat[0][2] = 1
-# print (pu_utilization(0))
-# print (pu_utilization(1))
-# the 
-# print (pu_utilization(2))
-# print (pu_utilization(3))
-
 
 # return power consumed by the island i
 def island_power(i) -> float:
@@ -272,31 +255,6 @@ def island_power(i) -> float:
 
     # TODO put a comment about (islands[i]['n_pus'] * idle_power)
     return (islands[i]['n_pus'] * idle_power) + (busy_power-idle_power) * float(utilization)
-
-
-# # return power consumed by the pu p
-# def pu_power(p) -> float:
-#     # get the index of the tasks deployed in PU p
-#     deployed_tasks = [x for x in range(len(deploy_mat)) if deploy_mat[x][p] == 1] 
-    
-#     i = get_island(p)
-#     print ('p:',p,i)
-#     busy_power = islands[i]['busy_power']
-#     idle_power = islands[i]['idle_power']
-
-#     utilization = 0.0
-#     z=1
-#     activation_period = G.graph['activation_period']
-#     for t in deployed_tasks:
-#         new_wcet = calc_wcet(t,p,0)
-#         # TODO get z
-#         utilization = utilization + (z*float(new_wcet)/float(activation_period))
-#     print (deployed_tasks, new_wcet, z, activation_period, utilization)
-
-#     return idle_power + (busy_power-idle_power) * utilization
-
-# for p in range(total_pus):
-#     print ('power:', pu_power(p))
 
 
 # sum up the power of each island based on current task placement and island frequency
@@ -697,22 +655,6 @@ def define_rel_deadlines(G) -> bool:
 # for n in G.nodes:
 #     print (n, G.nodes[n]["rel_deadline"])
 # sys.exit(1)
-
-# return false if task t was already in the last island
-# def move_task_between_islands(t) -> bool:
-#     found = False
-#     for i in range(n_islands):
-#         if t in islands[i]['placement']:
-#             if i == n_islands-1:
-#                 return False
-#             else:
-#                 islands[i]['placement'].remove(t)
-#                 islands[i+1]['placement'].append(t)
-#                 found = True
-#                 break
-#     if not found:
-#         print('WARNING: task',t, 'not assigned to any island')
-#     return True
 
 # The number of combinations of t tasks in i islands
 # is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
