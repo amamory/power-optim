@@ -70,9 +70,9 @@ G.graph['deadline'] = 100
 # considering which island ?!?!? let us say it's the 1st island of the list of islands
 G.graph['ref_freq'] = 1000
 
-sparse_adj_mat = nx.adjacency_matrix(G)
-array_adj_mat = sparse_adj_mat.toarray('C')
-print (array_adj_mat)
+# sparse_adj_mat = nx.adjacency_matrix(G)
+# array_adj_mat = sparse_adj_mat.toarray('C')
+# print (array_adj_mat)
 
 islands = []
 island1 = {}
@@ -741,6 +741,7 @@ freq_cnts = [0]*len(freq_seq)
 
 # teminate search conditions used to understand the most prevalent ones
 n_terminate_cond = 5
+# a set of global counters used to gather stat data
 terminate_counters = [(0,0.0)] * n_terminate_cond
 terminate_counter_names = [
 ['task wcet > dag deadline'],
@@ -763,15 +764,15 @@ terminate_counter_names = [
 #sys.exit(1)
 
 
-
 best_power = 999999.0
 best_task_placement = [0]*n_islands
 best_freq_idx = []
 l_idx = 0
-solution_evaluations = 0
+evaluated_solutions = 0
 potential_solutions = 0
 best_solutions = 0
 bad_solutions = 0
+print("")
 for l in leaf_list:
     # assume the following task placement onto the set of islands
     for i in range(n_islands):
@@ -780,71 +781,84 @@ for l in leaf_list:
     # The rational is that, if this task placement does not respect the DAG deadline
     # assigning their maximal frequencies, then this task placement cannot be a valid solution and
     # the search skip to the next task placement combination
-    freq_idx = 0
-    feasible = True
     if l_idx%100 == 0:
         print ('Checking solution',l_idx, 'out of',search_space_size)
-    #if l_idx > 3000:
-    #    break
-    #while feasible:
+    if l_idx > 1000:
+        break
     for f in range(len(freq_seq)):
-        # print ('searched freqs:')
+        # get the frequency sequence to be tested
         freqs_per_island_idx = freq_seq[f]
+        # skip candidate solutions where an island placement is empty but the frequency is not the minimal.
+        # It means that this candidate is obviously not an optimal one
+        skip_candidate = False
+        for i in range(n_islands):
+            # print (i, islands[i]["placement"], freqs_per_island_idx[i], freqs_per_island_idx)
+            if len(islands[i]["placement"]) ==  0 and freqs_per_island_idx[i] != 0:
+                skip_candidate = True
+                break
+        if skip_candidate:
+            continue
         if debug:
             print ('PLACEMENT and FREQs')
             for i in range(n_islands):
                 print(islands[i]["placement"])
             print(freqs_per_island_idx)
+        evaluated_solutions = evaluated_solutions +1
         # define the wcet for each task based on which island each task is placed and the freq for each island
         define_wcet()
         # find the critical path and check whether the solution might be feasible.
         # If so, divide the dag deadline proportionly to the weight of each node in the critical path
-        feasible = define_rel_deadlines(G) # TODO could have some variability in rel deadline assingment
-        # TODO check the island/processor utilization feasibility
-        feasible = pu_utilization(0) and feasible
-        if feasible: 
-            potential_solutions = potential_solutions +1
-            # Since this solutions is feasible, check whether this was the lowest power found so far.
-            # If so, update the best solution
-            power = define_power()
-            if power < best_power:
-                best_solutions = best_solutions +1
-                best_power = power
-                # save the best task placement onto the set of islands and the best frequency assignment
-                for i in range(n_islands):
-                    best_task_placement[i] = list(l.islands[i])
-                best_freq_idx = list(freqs_per_island_idx)
-                print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
-                if debug:
-                    print ('WCET and REL DEADLINE:')
-                    for n in G.nodes:
-                        print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
-        else:
+        if not define_rel_deadlines(G): # TODO could have some variability in rel deadline assingment
             bad_solutions =bad_solutions +1
+            freq_cnts[f] = freq_cnts[f] +1
+            continue
+        # check the island/processor utilization feasibility
+        if not pu_utilization(0):
+            bad_solutions =bad_solutions +1
+            freq_cnts[f] = freq_cnts[f] +1
+            continue
+
+        # Since this solutions is feasible, check whether this was the lowest power found so far.
+        # If so, update the best solution
+        potential_solutions = potential_solutions +1
+        power = define_power()
+        if power < best_power:
+            best_solutions = best_solutions +1
+            best_power = power
+            # save the best task placement onto the set of islands and the best frequency assignment
+            for i in range(n_islands):
+                best_task_placement[i] = list(l.islands[i])
+            best_freq_idx = list(freqs_per_island_idx)
+            print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
             if debug:
-                print ('not a solution:')
-            
-        freq_idx = freq_idx + 1
-        solution_evaluations = solution_evaluations +1
-    freq_cnts[freq_idx-1] = freq_cnts[freq_idx-1] +1
+                print ('WCET and REL DEADLINE:')
+                for n in G.nodes:
+                    print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
+
     l_idx = l_idx +1
 
+print("")
 if best_power < 999999.0:
-    print ('solution found with power',best_power, best_task_placement, best_freq_idx)
+    print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
 else:
     print ('no feasiable solution was found :(')
-    
+
+print("")
 print ('terminate counters:')
 for idx,i in enumerate(terminate_counters):
     if i[0] == 0:
         print (terminate_counter_names[idx],i)
     else:
         print (terminate_counter_names[idx], i , i[1]/float(i[0]))
-print ('total candidates evaluated', solution_evaluations, 'bad candidates', bad_solutions, 'potential solution', potential_solutions, 'best solutions', best_solutions)
-print ('number of frequencies evaluated per task placement:', float(solution_evaluations)/float(l_idx))
+
+print("")
+print ('total candidates evaluated', evaluated_solutions, 
+    'bad candidates', bad_solutions, "({:.4f}%)".format(float(bad_solutions)/float(evaluated_solutions)),
+    'potential solution', potential_solutions, "({:.4f}%)".format(float(potential_solutions)/float(evaluated_solutions)),
+    'best solutions', best_solutions, "({:.4f}%)".format(float(best_solutions)/float(evaluated_solutions)))
 sum_freqs = sum(freq_cnts)
 print ('freq histogram (unfeasible candidates):')
 for i in range(len(freq_cnts)):
     if freq_cnts[i] != 0 :
         print ("{:.2f}".format(freq_cnts[i]/sum_freqs), freq_seq[i])
-        
+
