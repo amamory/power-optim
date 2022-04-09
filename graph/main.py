@@ -72,22 +72,17 @@ for idx, i in enumerate(sw['dags']):
     G.graph['deadline'] = i['deadline']
     # the reference freq is the freq used to characterize this application
     G.graph['ref_freq'] = i['ref_freq']
-    # when deadling with multiple DAGs, this will be a better way to find the first and last nodes of a DAG
-    first_node = [t for t in G.nodes if G.successors(t) == None]
-    last_node = [t for t in G.nodes if G.predecessors(t) == None]
-    print (first_node, last_node)
-    print (G.successors(9))
-    print (len(G.successors(9).items()))
-    if len(first_node) != 1:
+    # when it's deadling with multiple DAGs, this will find the first and last nodes of a DAG
+    last_task = [t for t in G.nodes if len(list(G.successors(t))) == 0]
+    first_task = [t for t in G.nodes if len(list(G.predecessors(t))) == 0]
+    if len(first_task) != 1:
         print('ERROR: invalid DAG with multiple starting nodes')
         sys.exit(1)
-    if len(last_node) != 1:
+    if len(last_task) != 1:
         print('ERROR: invalid DAG with multiple ending nodes')
         sys.exit(1)
-    G.graph['first_node'] =  first_node[0]
-    G.graph['last_node'] = last_node[0]
-    print (G.graph['first_node'], G.graph['last_node'])
-    sys.exit(1)
+    G.graph['first_task'] =  first_task[0]
+    G.graph['last_task'] = last_task[0]
 
 
 # load the hardware definition file
@@ -294,8 +289,8 @@ def define_wcet() -> None:
             sys.exit(1)
 
     # the 1st and last nodes have no computation
-    G.nodes[0]["wcet"] = 0
-    G.nodes[len(G.nodes)-1]["wcet"] = 0
+    G.nodes[G.graph['first_task']]["wcet"] = 0
+    G.nodes[G.graph['last_task']]["wcet"] = 0
 
 # assign relative deadline to each node
 # potentially optmized version using 'shortest path' algorithms instead of 'all paths'
@@ -317,9 +312,8 @@ def define_rel_deadlines2(G) -> bool:
     # deep copy the DAG
     H = G.copy()
 
-    last_node = len(H.nodes)-1
-    H.nodes[0]["wcet"] = 0
-    H.nodes[last_node]["wcet"] = 0
+    H.nodes[H.graph['first_task']]["wcet"] = 0
+    H.nodes[H.graph['last_task']]["wcet"] = 0
     dag_deadline = H.graph['deadline']
 
     # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
@@ -342,7 +336,7 @@ def define_rel_deadlines2(G) -> bool:
     for n in H.nodes:
         H.nodes[n]["rel_deadline"] = 0
 
-    critical_path = nx.shortest_path(H,0,last_node,weight='weight')
+    critical_path = nx.shortest_path(H,H.graph['first_task'],H.graph['last_task'],weight='weight')
     wcet_critical_path = sum([G.nodes[n1]["wcet"] for n1 in critical_path])
     if wcet_critical_path > dag_deadline:
         if debug:
@@ -353,13 +347,15 @@ def define_rel_deadlines2(G) -> bool:
     # 2) get all paths to each end node
     ####################
     wcet_path_list  = [0]*len(H.nodes)
-    for n in range(1,last_node):
+    # remove the initial and last nodes of the DAG
+    task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
+    for n in task_set:
         # get the critical path from the node 0 to the node n
         ipath = nx.shortest_path(H,0,n,weight='weight')
         isum = sum([H.nodes[n1]["wcet"] for n1 in ipath])
         # print (n, isum, ipath)
         # get the critical path from the node n to the last node 
-        opath = nx.shortest_path(H,n,last_node, weight='weight')
+        opath = nx.shortest_path(H,n,H.graph['last_task'], weight='weight')
         osum = sum([H.nodes[n1]["wcet"] for n1 in opath[1:]])
         # print (n, osum, opath)
         # assign the critical path to node n
@@ -368,7 +364,7 @@ def define_rel_deadlines2(G) -> bool:
     ############################
     # 3) assign deadline to all nodes proportionally to its wcet and path wcet
     ############################
-    for n in range(1,len(H.nodes)-1):
+    for n in task_set:
         wcet_ratio = float(H.nodes[n]["wcet"])/float(wcet_path_list[n])
         # assign rel_deadline proportional to its wcet
         H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
@@ -379,11 +375,11 @@ def define_rel_deadlines2(G) -> bool:
     # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
     # by trying to increase the relative deadline of the last nodes.
     # get the last edges and nodes
-    last_edges = H.in_edges(len(H.nodes)-1)
+    last_edges = H.in_edges(H.graph['last_task'])
     last_nodes = [e[0] for e in last_edges]
     for n in last_nodes:
         # the critical path
-        path = nx.shortest_path(H,0,n,weight='weight')
+        path = nx.shortest_path(H,H.graph['first_task'],n,weight='weight')
         max_rel_deadline_sum = sum([H.nodes[n1]["rel_deadline"] for n1 in path])
         # assign any reamaning slack to its last node
         if max_rel_deadline_sum > dag_deadline:
@@ -401,7 +397,7 @@ def define_rel_deadlines2(G) -> bool:
             return False
 
     # the relative deadline of a task cannot be lower than its wcet
-    for n in H.nodes:
+    for n in task_set:
         if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
             if debug:
                 print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
@@ -432,9 +428,8 @@ def define_rel_deadlines(G) -> bool:
     # deep copy the DAG
     H = G.copy()
 
-    last_node = len(H.nodes)-1
-    H.nodes[0]["wcet"] = 0
-    H.nodes[last_node]["wcet"] = 0
+    H.nodes[H.graph['first_task']]["wcet"] = 0
+    H.nodes[H.graph['last_task']]["wcet"] = 0
     dag_deadline = H.graph['deadline']
 
     # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
@@ -479,7 +474,7 @@ def define_rel_deadlines(G) -> bool:
     # weights are not correctly assigned
 
     start_time = time.time()
-    critical_path = nx.shortest_path(H,0,last_node,weight='weight')
+    critical_path = nx.shortest_path(H,H.graph['first_task'],H.graph['last_task'],weight='weight')
     wcet_critical_path = sum([H.nodes[n1]["wcet"] for n1 in critical_path])
     elapsed_time = time.time() - start_time
     #print ('CRITICAL PATH:')
@@ -495,7 +490,7 @@ def define_rel_deadlines(G) -> bool:
     # 2) get all paths to each end node
     ####################
     # get the last edges and nodes
-    last_edges = H.in_edges(len(H.nodes)-1)
+    last_edges = H.in_edges(H.graph['last_task'])
     last_nodes = [e[0] for e in last_edges]
     # get the paths to the last nodes
     # TODO: bad scalability !!! the 'all_simple_paths' function is O(n!) in the complete graph of order n.
@@ -504,7 +499,7 @@ def define_rel_deadlines(G) -> bool:
     for n in last_nodes:
         path_list = []
         # get all the paths to last node n
-        paths = nx.all_simple_paths(H, 0, n)
+        paths = nx.all_simple_paths(H, H.graph['first_task'], n)
         # make it a list of paths
         path_list.extend(paths)
         paths_from_last_nodes.append(path_list)
@@ -513,13 +508,15 @@ def define_rel_deadlines(G) -> bool:
     ####################
     # 3) for each node, assign its max path wcet
     ####################
-    H.nodes[0]["wcet"] = 0
-    H.nodes[len(H.nodes)-1]["wcet"] = 0
+    H.nodes[H.graph['first_task']]["wcet"] = 0
+    H.nodes[H.graph['last_task']]["wcet"] = 0
     # create a list with node wcet
     path_wcet_list = [H.nodes[n]["wcet"] for n in H.nodes]
     # a tuple to save the longest of all paths. format (path wcet, path)
     critical_path2 = (0,[])
-    for n in range(1,len(H.nodes)-1):
+    # remove the initial and last nodes of the DAG
+    task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
+    for n in task_set:
         start_time = time.time()
         # get all the paths where node n is found
         paths_of_node_n = [p for p in all_paths_list if n in p]
@@ -568,7 +565,7 @@ def define_rel_deadlines(G) -> bool:
     ############################
     # 4) assign deadline to all nodes proportionally to its wcet and path wcet
     ############################
-    for n in range(1,len(H.nodes)-1):
+    for n in task_set:
         wcet_ratio = float(H.nodes[n]["wcet"])/float(path_wcet_list[n])
         # assign rel_deadline proportional to its wcet
         H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
@@ -596,7 +593,7 @@ def define_rel_deadlines(G) -> bool:
         H.nodes[node]["rel_deadline"] = H.nodes[node]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
 
     # the relative deadline of a task cannot be lower than its wcet
-    for n in H.nodes:
+    for n in task_set:
         if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
             if debug:
                 print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
@@ -608,7 +605,6 @@ def define_rel_deadlines(G) -> bool:
     # 6) transfer the relative deadline back to the original DAG
     ############################
     for n in H.nodes:
-        #print (n, H.nodes[n]["rel_deadline"])
         G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
 
     return True
@@ -630,14 +626,14 @@ def optimal_placement(n_pus,task_set,graph) -> list:
 def check_utilization() -> bool:
     # for each island, run the placement heuristic and, if required, the exact solution
     temp_solution = []
-    first_node = 0
-    last_node = len(G.nodes)-1
+    first_task = G.graph['first_task']
+    last_task = G.graph['last_task']
     for i in islands:
         # to keep track of worst_fit heuristic with good data locality
         utilization_per_pu = [0.0]*i['n_pus']
         task_placement = [[] for aux in range(i['n_pus'])]
         # remove the initial and last nodes of the DAG
-        task_set = [t for t in i['placement'] if t != first_node and t != last_node]
+        task_set = [t for t in i['placement'] if t != first_task and t != last_task]
         for t in task_set:
             # get the PUs with minimal utilization
             pu = utilization_per_pu.index(min(utilization_per_pu))
