@@ -72,6 +72,23 @@ for idx, i in enumerate(sw['dags']):
     G.graph['deadline'] = i['deadline']
     # the reference freq is the freq used to characterize this application
     G.graph['ref_freq'] = i['ref_freq']
+    # when deadling with multiple DAGs, this will be a better way to find the first and last nodes of a DAG
+    first_node = [t for t in G.nodes if G.successors(t) == None]
+    last_node = [t for t in G.nodes if G.predecessors(t) == None]
+    print (first_node, last_node)
+    print (G.successors(9))
+    print (len(G.successors(9).items()))
+    if len(first_node) != 1:
+        print('ERROR: invalid DAG with multiple starting nodes')
+        sys.exit(1)
+    if len(last_node) != 1:
+        print('ERROR: invalid DAG with multiple ending nodes')
+        sys.exit(1)
+    G.graph['first_node'] =  first_node[0]
+    G.graph['last_node'] = last_node[0]
+    print (G.graph['first_node'], G.graph['last_node'])
+    sys.exit(1)
+
 
 # load the hardware definition file
 islands = None
@@ -615,9 +632,6 @@ def check_utilization() -> bool:
     temp_solution = []
     first_node = 0
     last_node = len(G.nodes)-1
-    # TODO when deadling with multiple DAGs, this will be a better way to find the first and last nodes of a DAG
-    #first_node = [t for t in G.nodes if G.successors(n) == None]
-    #last_node = [t for t in G.nodes if G.predecessors(n) == None]
     for i in islands:
         # to keep track of worst_fit heuristic with good data locality
         utilization_per_pu = [0.0]*i['n_pus']
