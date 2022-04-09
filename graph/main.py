@@ -95,7 +95,9 @@ for i in islands['hw']:
     i['busy_power'] = list(data.busy_power_avg)
     i['idle_power'] = list(data.idle_power_avg)
     i['freqs'] = list(data.freq)
-    i['placement'] = []
+    i['placement'] = [] # the tasks assigned to this island
+    i['pu_utilization'] = [0.0]*i['n_pus'] # the utilization on each PU
+    i['pu_placement'] = [[] for aux in range(i['n_pus'])] # the tasks assigned to each PU
     del(i['power_file'])
 
 for idx, i in enumerate(islands['hw']):
@@ -180,56 +182,8 @@ def calc_wcet(t,p,m) -> int:
     # get the frequency assigned to the island i
     f = islands[i]['freqs'][freqs_per_island_idx[i]]
     capacity = islands[i]['capacity']
-    #print (wcet_ns,wcet,capacity,f,f_ref)
 
     return wcet_ns + (capacity * (wcet-wcet_ns)/f * f_ref)
-
-# return whether the pu was overloaded or not
-# TODO review the need of calculating this per pu
-def pu_utilization(p) -> bool:
-
-    # TODO p, not used for now .... 
-    start_time = time.time()
-    #for u_path in unrelated:
-    #    utilization.append(sum([ float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']) for t in u_path if G.nodes[t]['rel_deadline'] != 0])  )
-    
-    # get the utilization for each unreleated path
-    start_time = time.time()
-    for idx, u_path in enumerate(unrelated):
-        utilization = 0.0
-        for t in u_path:
-            if G.nodes[t]['rel_deadline'] != 0:
-                utilization = utilization + (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))        
-        # stop as soon as one utilization is > 1.0
-        if utilization > 1.0:
-            elapsed_time = time.time() - start_time
-            #print('UTILIZATION')
-            #print (utilization, u_path)
-            #for t in u_path:
-            #    if G.nodes[t]['rel_deadline'] != 0:
-            #        aux = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
-            #        print (t, aux)
-            if debug:
-                print ('WARNING: pu', p, 'has exeeded the utilization in', utilization)
-            temp_tuple = (terminate_counters[4][0]+1,terminate_counters[4][1]+elapsed_time)
-            terminate_counters[4] = temp_tuple
-            return False
-    #if max(utilization) > 1.0:
-    #    # TODO: DISCUSS ===> Is it possible to postpone task assingment for this constraint check ?!?!?!
-    #    # let's say that 3 tasks break the utilization constraint. they might be assigned to:
-    #    #  - the same island, but diff processors. So, the PU utilization constraint might not be broken after all
-    #    #  - they might be assigned different islands. Again, the PU utilization constraint might not be broken
-    #    # The PU utilization constraint will be broken only when 'enough' tasks is assigned to the same processor.
-    #    if debug:
-    #        print ('WARNING: pu', p, 'has exeeded the utilization in', utilization)
-    #    temp_tuple = (terminate_counters[4][0]+1,terminate_counters[4][1]+elapsed_time)
-    #    terminate_counters[4] = temp_tuple
-    #    sys.exit(1)
-    #    return False
-    #else:
-        
-    return True
-
 
 # return power consumed by the island i
 def island_power(i) -> float:
@@ -642,6 +596,58 @@ def define_rel_deadlines(G) -> bool:
 
     return True
 
+# Optimal solution to the place a task set onto PUs.
+# It returns am empty list if it is indeed impossible to place the task set without breaking the utilization constraint.
+# Otherwise, it returns the optimal task placement.
+# TODO call minizinc and run Constraint Programming.
+def optimal_placement(n_pus,task_set,graph) -> list:
+    # create the minizinc dzn file
+    # run minizinc
+    # capture the task placement, if this is feasible
+    return []
+
+# It initially performs a worst_fit greedy approach to place the tasks of an island onto PUs.
+# If the heuristic says that it is not possible to place the tasks, then it runs an exact optimal
+# solver to confirm it. Hopefully, the heuristic will be sufficient most of the times.
+# Returns false if any PU on any island exeeds the utilization threshold.
+def check_utilization() -> bool:
+    # for each island, run the placement heuristic and, if required, the exact solution
+    temp_solution = []
+    first_node = 0
+    last_node = len(G.nodes)-1
+    # TODO when deadling with multiple DAGs, this will be a better way to find the first and last nodes of a DAG
+    #first_node = [t for t in G.nodes if G.successors(n) == None]
+    #last_node = [t for t in G.nodes if G.predecessors(n) == None]
+    for i in islands:
+        # to keep track of worst_fit heuristic with good data locality
+        utilization_per_pu = [0.0]*i['n_pus']
+        task_placement = [[] for aux in range(i['n_pus'])]
+        # remove the initial and last nodes of the DAG
+        task_set = [t for t in i['placement'] if t != first_node and t != last_node]
+        for t in task_set:
+            # get the PUs with minimal utilization
+            pu = utilization_per_pu.index(min(utilization_per_pu))
+            # get the utilization for the current task t
+            pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))        
+            #print (t, pu, pu_utilization)
+            # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
+            if utilization_per_pu[pu] + pu_utilization > 1.0:
+                # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
+                task_placement = optimal_placement(i['n_pus'],i['placement'],G)
+                if len(task_placement) == 0:
+                    return False
+                break
+            else:
+                utilization_per_pu[pu] = utilization_per_pu[pu] + pu_utilization
+                task_placement[pu].append(t)
+        temp_solution.append((utilization_per_pu,task_placement))
+    # the solution is copied back to the islands data structure only if the task placement is feasible for all islands
+    for idx, i in enumerate(islands):
+        i['pu_utilization'] = list(temp_solution[idx][0])
+        i['pu_placement'] = list(temp_solution[idx][1])
+    
+    return True
+
 # define_rel_deadlines2(G)
 # print ('NEW RELATIVE DEADLINES:')
 # for n in G.nodes:
@@ -698,7 +704,7 @@ terminate_counter_names = [
 #    freqs_per_island_idx = freq_seq[i]
 #    define_wcet()
 #    feasible = define_rel_deadlines(G)
-#    feasible2 = pu_utilization(0)
+#    feasible2 = check_utilization()
 #    power = define_power()
 #    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
 #sys.exit(1)
@@ -723,7 +729,7 @@ for l in leaf_list:
     # the search skip to the next task placement combination
     if l_idx%100 == 0:
         print ('Checking solution',l_idx, 'out of',search_space_size, 'possible mappings')
-    if l_idx > 1000:
+    if l_idx >500:
         break
     for f in range(len(freq_seq)):
         # get the frequency sequence to be tested
@@ -753,11 +759,11 @@ for l in leaf_list:
             freq_cnts[f] = freq_cnts[f] +1
             continue
         # check the island/processor utilization feasibility
-        if not pu_utilization(0):
+        # if not pu_utilization(0):
+        if not check_utilization():
             bad_solutions =bad_solutions +1
             freq_cnts[f] = freq_cnts[f] +1
             continue
-
         # Since this solutions is feasible, check whether this was the lowest power found so far.
         # If so, update the best solution
         potential_solutions = potential_solutions +1
