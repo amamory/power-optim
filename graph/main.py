@@ -182,21 +182,6 @@ def get_island(p):
     print ('ERROR: should never reach here', p)
     sys.exit(1)
 
-# task t, processing unit p, operating performance points (freq) m
-# TODO: probably it makes more sense to replace a processing unit index by an island index
-def calc_wcet(t,p,m) -> int:
-    global freqs_per_island_idx
-    wcet_ns = G.nodes[t]['wcet_ref_ns']
-    wcet = G.nodes[t]['wcet_ref']
-    i = get_island(p)
-    # that's somehow arbitrary definition
-    f_ref = G.graph['ref_freq']
-    # get the frequency assigned to the island i
-    f = islands[i]['freqs'][freqs_per_island_idx[i]]
-    capacity = islands[i]['capacity']
-
-    return wcet_ns + (capacity * (wcet-wcet_ns)/f * f_ref)
-
 # return power consumed by the island i
 def island_power(i) -> float:
     # get the index of the tasks deployed in island i
@@ -271,16 +256,16 @@ def define_wcet() -> None:
             if len(inter) > 0:
                 print ('ERROR: task(s) ', inter, 'where found in islands',idx1,'and',idx2)
                 sys.exit(1)
-    # get a valid processing unit id for each island
-    proc_id = []
-    n_pu = 0
-    for i in islands:
-        proc_id.append(n_pu)
-        n_pu = n_pu + i['n_pus'] 
+    f_ref = G.graph['ref_freq']
     # calculate the wcet for each task
-    for idx,i in enumerate(islands):
+    for idx, i in enumerate(islands):
+        # get the frequency assigned to the island i
+        f = i['freqs'][freqs_per_island_idx[idx]]
+        capacity = i['capacity']
         for t in i['placement']:
-            wcet = calc_wcet(t,proc_id[idx],0)
+            wcet_ref_ns = G.nodes[t]['wcet_ref_ns']
+            wcet_ref = G.nodes[t]['wcet_ref']
+            wcet = wcet_ref_ns + (capacity * (wcet_ref-wcet_ref_ns)/f * f_ref)
             G.nodes[t]["wcet"] = int(math.ceil(wcet))
     # cannot have a task not placed in an island
     for t in G.nodes:
