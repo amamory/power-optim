@@ -8,9 +8,7 @@ class Node:
         self.data = data
         self.parent = parent # not in use at this moment
         # store the tasks in each island
-        self.islands = []
-        for i in range(nary):
-            self.islands.append([])
+        self.islands = [[] for i in range(nary)]
         self.children = [None]*nary
 
 # number of nodes of the tree

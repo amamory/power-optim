@@ -212,6 +212,31 @@ def define_power() ->  float:
         total_power = total_power +  island_power(i)
     return total_power
 
+# Creates a tree representing all possible sequeces of frequencies for all islands.
+# It assuming the root represents the max freq for each island and the subsequent nodes represent lower frequencies.
+# It returns the tree root.
+freq_node_id = 0
+def create_frequency_sequence_tree(freq_idx_list, island_id, parent,ary) -> None:
+    global freq_node_id
+    # the node data is a tuple with node_id, the freq indexes (i.e. the main data), and a boolean used later to navigate into the tree
+    data = (freq_node_id, list(freq_idx_list), False)
+    node = tree.Node(data, parent, ary)
+    freq_node_id = freq_node_id + 1
+    # if reached the lowest frequency for this island, then stop creating nodes
+    if freq_idx_list[island_id] == 0:
+        return node
+    for i in range(ary):
+        aux_list = list(freq_idx_list)
+        aux_list[i] = aux_list[i] -1
+        node.children[i] = create_frequency_sequence_tree(aux_list, i, node, ary)
+    return node
+
+# num_freqs = [len(i['freqs'])-1 for i in islands]
+# freq_root = create_frequency_sequence_tree(list(num_freqs),0, None, n_islands)
+# print (freq_node_id)
+# print (freq_root)
+# sys.exit(1)
+
 # TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
 def create_frequency_sequence() -> list():
     freq_seq = []
