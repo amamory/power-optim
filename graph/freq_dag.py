@@ -2,6 +2,7 @@
 # The starting node represents the max freq for each island and the subsequent nodes represent lower frequencies.
 # The last node represents the lowest freq for each island.
 import networkx as nx
+from matplotlib import pyplot as plt
 import pandas as pd
 import sys
 
@@ -23,7 +24,7 @@ class Freq_DAG:
         # create the nodes and their attributed. this must be executed before creating the edges
         nodeData = self._create_node_idx()
         # how the nodes should be connected to represent the correct dominance effect
-        self._create_edges(self.root)
+        self.edge_list = self._create_edges()
         # edge related data structures
         sources = [x[0] for x in self.edge_list]
         targets = [x[1] for x in self.edge_list]
@@ -87,6 +88,14 @@ class Freq_DAG:
         del(reversed_freq_seq[0])
         return reversed_freq_seq
 
+    def _get_freq_list(self,node_id) -> list():
+        freq_list = [i[1] for i in self.node2freq_list if i[0] == node_id]
+        # only one node is expected
+        if len(freq_list) != 1:
+            print ("ERROR: unexpected result in '_get_freq_list'")
+            sys.exit(1)
+        return freq_list[0]
+
     # return the node_id that matches the freq_list
     def _get_node(self,freq_list) -> int:
         if len(self.node2freq_list) == 0:
@@ -105,27 +114,61 @@ class Freq_DAG:
             sys.exit(1)
         return node_index[0]
 
-    def _create_edges(self, f_list) -> int:
-        f_node = self._get_node(f_list)
-        # stop recursion when the list is pointing to the lowest freqs for all islands,
-        # i.e., if the list has all zeros
-        if sum(f_list) == 0:
-            return f_node
-        # for each island
-        f = list(f_list)
-        for i in range(len(self.root)):
-            if f[i] == 0:
-                continue
-            f[i] = f[i]-1
-            self.edge_list.append((f_node, self._create_edges(f)))
-        #print ('is it root?',f_node. f_list)
-        return f_node
-
+    # return the edge list for the dag
+    def _create_edges(self) -> list():
+        # Stack to store all the nodes of the tree
+        s1 = []
+        edge_list = []
+        # Push the root node
+        s1.append(self.root)
+        while len(s1) != 0:
+            curr = s1.pop()
+            source_node = self._get_node(curr)
+            # for n islands, create up to n children nodes
+            for i in range(len(curr)):
+                if curr[i] == 0:
+                    continue
+                aux = list(curr)
+                aux[i] = aux[i] -1
+                s1.append(aux)
+                target_node = self._get_node(aux)
+                # saving the edge
+                edge_list.append((source_node, target_node))
+        return edge_list
 
     # for the same DAG, there might be multiple access approaches. 
     # this method goes from the max freq set to the lowest
     def _create_access_order(self):
         pass
+
+    def plot(self):
+        # pos = nx.spring_layout(self.G)
+        # nx.draw(self.G, pos)
+        # node_labels = nx.get_node_attributes(self.G,'freq')
+        # nx.draw_networkx_labels(self.G, pos, labels = node_labels)
+        # # edge_labels = nx.get_edge_attributes(self.G,'state')
+        # # nx.draw_networkx_edge_labels(self.G, pos, labels = edge_labels)
+        # plt.savefig('this.png')
+        # plt.show()  
+
+        # not using write_dot because the graph would not have the 'freq' node attribute
+        #nx.drawing.nx_pydot.write_dot(self.G, 'graph.dot')
+        f = open('graph.dot','w')
+        f.write('strict digraph  {\n')
+        for n in self.G.nodes:
+            freq_list = self._get_freq_list(n)
+            # create lines like this one
+            # 0  [label="[2, 2, 2]"];
+            line = "%d  [label=\"%s\"];\n" % (n,str(freq_list))
+            f.write(line)
+        for s,t in self.G.edges():
+            line = "%d->%d;\n" % (s,t)
+            f.write(line)
+        f.write("}\n")
+        f.close()
+
+
+
 
     # for debug purposes
     def print_dag():
@@ -145,26 +188,5 @@ class Freq_DAG:
         pass
 
 
-# n_nodes = 2
-# node_names = [0,1]
-# freqs = [[2,2,2],[1,2,2]]
-# false_list = [False]*n_nodes
-# nodeData = pd.DataFrame(
-#             {'name' : node_names,
-#             'freq' : freqs,     # 
-#             'visited' : false_list # 
-#             })
-# edge_list = [(0,1)]
-# sources = [x[0] for x in edge_list]
-# targets = [x[1] for x in edge_list]
-# weights = [0 for x in range(len(edge_list))] # defined in runtime
-# linkData = pd.DataFrame({'source' : sources,
-#                 'target' : targets,
-#                 'weight' :weights})
-
-# G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
-# nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
-
-# print(G.nodes)
-# print(G)
 F = Freq_DAG([2,2,2])
+F.plot()

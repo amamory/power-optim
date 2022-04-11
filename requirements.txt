@@ -3,8 +3,11 @@ networkx
 scipy
 numpy
 pyyaml
-plotly
 pymzn
+plotly
+matplotlib
+graphviz 
+pydot 
 sphinx
 sphinx-rtd-theme
 sphinx-autoapi
