@@ -2,7 +2,6 @@
 # The starting node represents the max freq for each island and the subsequent nodes represent lower frequencies.
 # The last node represents the lowest freq for each island.
 import networkx as nx
-from matplotlib import pyplot as plt
 import pandas as pd
 import sys
 
@@ -13,49 +12,54 @@ class Freq_DAG:
         self.root = list(num_freq_list)
         self.n_nodes = 0
         self.n_islands = len(self.root)
-        self.edge_list = []
-        self.node2freq = dict()
-        self.node2freq_list = list()       
-        self._create_dag()
-        self._create_access_order()
+        self.node2freq_list = list()
+        # the dag
+        self.G = self._create_dag()
+        # this indexes are used when transversing the graph in the deacresing freq order
+        self.access_order = self._create_access_order()
+        self.curr_node = 0
     
-
+    # it creates the dag that represents the dominance among the freq sequences
     def _create_dag(self):
         # create the nodes and their attributed. this must be executed before creating the edges
         nodeData = self._create_node_idx()
         # how the nodes should be connected to represent the correct dominance effect
-        self.edge_list = self._create_edges()
+        edge_list = self._create_edges()
         # edge related data structures
-        sources = [x[0] for x in self.edge_list]
-        targets = [x[1] for x in self.edge_list]
-        weights = [0 for x in range(len(self.edge_list))] # defined in runtime
+        sources = [x[0] for x in edge_list]
+        targets = [x[1] for x in edge_list]
+        weights = [0] * len(edge_list)
         linkData = pd.DataFrame({'source' : sources,
-                        'target' : targets,
-                        'weight' :weights})
-        self.G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
-        nx.set_node_attributes(self.G, nodeData.set_index('name').to_dict('index'))
+                    'target' : targets,
+                    'weight' :weights})
+        dag = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
+        nx.set_node_attributes(dag, nodeData.set_index('name').to_dict('index'))
+        return dag
 
 
     # create the graph nodes
     # Nodes must be hashble types, so it's necessary to create integers to 
     # identify the nodes, while the list of frequency indexes is an atribute called 'freq'
-    # The 'visited' attribute is used only during data navigation.
+    # The 'skip' attribute is used only during data navigation.
     def _create_node_idx(self):
         freqs = self._create_frequency_sequence()
         self.n_nodes = len(freqs)
         node_names = list(range(self.n_nodes))
-        self.node2freq = dict(zip(node_names, freqs))
+        # list used to map node_id with an unique freq seq
+        # TODO, in the future, node_names could be dropped because it conincides with the list index
         self.node2freq_list = list(zip(node_names,freqs))
         false_list = [False]*self.n_nodes
         nodeData = pd.DataFrame(
                     {'name' : node_names,
                     'freq' : freqs,     # 
-                    'visited' : false_list # 
+                    'skip' : false_list # 
                     })
         return nodeData
-        #self.G.add_nodes_from(node_names)
 
     # creates a list with all combinations of frequency indexes
+    # the order they are generated is not relevant for this application
+    # the important is that it must have a one-to-one relationship among 
+    # node id and a freq sequence
     def _create_frequency_sequence(self) -> list():
         freq_seq = []
         stop = False
@@ -116,7 +120,7 @@ class Freq_DAG:
 
     # return the edge list for the dag
     def _create_edges(self) -> list():
-        # Stack to store all the nodes of the tree
+        # Stack to store all the nodes of the dag
         s1 = []
         edge_list = []
         # Push the root node
@@ -137,11 +141,42 @@ class Freq_DAG:
         return edge_list
 
     # for the same DAG, there might be multiple access approaches. 
-    # this method goes from the max freq set to the lowest
+    # this method goes from the max freq set to the lowest. 
+    # It initially seems very similar to '_create_edges' but the
+    # access pattern is different. For instance, in this function the item 
+    # taken from the stack is the first one, not the last.
     def _create_access_order(self):
-        pass
+        # Stack to store all the nodes of the dag
+        s1 = []
+        access_order = []
+        # Push the root node
+        s1.append(self.root)
+        while len(s1) != 0:
+            curr = s1.pop(0)
+            source_node = self._get_node(curr)
+            if source_node not in access_order:
+                access_order.append(source_node)
+            # for n islands, create up to n children nodes
+            for i in range(len(curr)):
+                if curr[i] == 0:
+                    continue
+                aux = list(curr)
+                aux[i] = aux[i] -1
+                s1.append(aux)
+        # check if the order is the expected on
+        # idx=0
+        # for i in access_order:
+        #     print (idx,self.G.nodes[i]['freq'])
+        #     idx = idx +1
+        return access_order
 
+    def print_dag(self):
+        for n in range(self.n_nodes):
+            print (n, self.G.nodes[n]['skip'],self.G.nodes[n]['freq'],)
+
+    # Generates a .dot file to be used with graphviz for debuging
     def plot(self):
+        # 1) This option results into a very bad layout. Other nx layout didnt help that much
         # pos = nx.spring_layout(self.G)
         # nx.draw(self.G, pos)
         # node_labels = nx.get_node_attributes(self.G,'freq')
@@ -151,8 +186,10 @@ class Freq_DAG:
         # plt.savefig('this.png')
         # plt.show()  
 
-        # not using write_dot because the graph would not have the 'freq' node attribute
+        # 2) not using write_dot because the graph would not have the 'freq' node attribute
         #nx.drawing.nx_pydot.write_dot(self.G, 'graph.dot')
+
+        # 3) The best approach was to manually write the dot file
         f = open('graph.dot','w')
         f.write('strict digraph  {\n')
         for n in self.G.nodes:
@@ -167,26 +204,79 @@ class Freq_DAG:
         f.write("}\n")
         f.close()
 
+    # used to start over another search whihout creating the whole dag again
+    def reinitiate_dag(self):
+        self.curr_node_idx = 0
+        for n in self.G.nodes():
+            self.G.nodes[n]['skip'] = False
 
-
-
-    # for debug purposes
-    def print_dag():
-        pass
 
     # go to the next frequency set, according to the created access order, skiping the sets 
-    # already marked as not viable
-    def next():
-        pass
+    # already marked to be skipped
+    def next(self):
+        if self.curr_node_idx+1 > self.n_nodes:
+            self.curr_node_idx = 0
+            # I suppose it is not expected to get to this point
+            print ('ERROR: not expected to reach this point in function "next"')
+            sys.exit(1)
+        found = False
+        initial_idx = self.curr_node_idx
+        # keep the loop until a node that should not be skipped if found or reach the end of the dag
+        for n in self.access_order[self.curr_node_idx+1:]:
+            initial_idx = initial_idx +1
+            if not self.G.nodes[n]['skip']:
+                found = True
+                break
+        # stop the index in the last valid node
+        if found:
+            self.curr_node_idx = initial_idx
+        return found
 
     # get the current frequency set
-    def get() -> list():
-        pass
+    def get(self) -> list():
+        curr_node = self.access_order[self.curr_node_idx]
+        return self._get_freq_list(curr_node)
 
     # set the current frequency set, and all its lower freq sets, as not viable solution
-    def not_viable():
-        pass
+    # by marking their 'skip' attribute
+    def not_viable(self):
+        # mark all nodes from the current node until the last one with 'skip' = True
+        curr_node = self.access_order[self.curr_node_idx]
+        # Stack to store all the nodes of the dag
+        s1 = []
+        # Push the current node
+        s1.append(curr_node)
+        while len(s1) != 0:
+            curr_node = s1.pop(0)
+            self.G.nodes[curr_node]['skip'] = True
+            # push in to the stack all the outgoing nodes from the current node
+            for s,t in self.G.out_edges(curr_node):
+                s1.append(t)
 
 
 F = Freq_DAG([2,2,2])
-F.plot()
+F._create_access_order()
+F.reinitiate_dag()
+print (F.get())
+F.next()
+print (F.get())
+F.next()
+print (F.get())
+F.next()
+print (F.get())
+F.not_viable()
+F.print_dag()
+F.next()
+print (F.get())
+F.next()
+print (F.get())
+F.next()
+print (F.get())
+F.next()
+print (F.get())
+print (F.next())
+print (F.get())
+print (F.next())
+print (F.get())
+print (F.next())
+print (F.get())
