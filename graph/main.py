@@ -700,17 +700,17 @@ terminate_counter_names = [
 
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
-islands[0]["placement"] = [9, 8, 7, 6, 5, 4, 3, 2, 1,0 ]
-islands[1]["placement"] = []
-islands[2]["placement"] = []
-for i in range(len(freq_seq)):
-   freqs_per_island_idx = freq_seq[i]
-   define_wcet()
-   feasible = define_rel_deadlines(G)
-   feasible2 = check_utilization()
-   power = define_power()
-   print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-sys.exit(1)
+# islands[0]["placement"] = [9, 8, 7, 6, 5, 4, 3, 2, 1,0 ]
+# islands[1]["placement"] = []
+# islands[2]["placement"] = []
+# for i in range(len(freq_seq)):
+#    freqs_per_island_idx = freq_seq[i]
+#    define_wcet()
+#    feasible = define_rel_deadlines(G)
+#    feasible2 = check_utilization()
+#    power = define_power()
+#    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+# sys.exit(1)
 
 # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
 Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
