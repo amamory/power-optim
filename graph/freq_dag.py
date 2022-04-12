@@ -272,7 +272,7 @@ class Freq_DAG:
                 continue
             # 2) skip candidate solutions where an island placement is empty but the frequency is not the minimal.
             # It means that this candidate is "obviously" not an optimal one
-            # TODO weird result!!! how come that for the placement [[9, 8, 7, 6, 5, 4, 3, 2, 1, 0], [], []]
+            # TODO BUG weird result!!! how come that for the placement [[9, 8, 7, 6, 5, 4, 3, 2, 1, 0], [], []]
             # -  303103.32 True True [2, 2, 2]
             # - 1146498.47 True True [2, 0, 0]
             # The power calculation is not maling sense !!! the islands with no task should be with the lowest frequency
