@@ -2,6 +2,7 @@ import sys
 import os
 import networkx as nx
 import pandas as pd
+import numpy as np
 import math
 import time
 import yaml
@@ -264,6 +265,8 @@ def define_wcet() -> None:
                 sys.exit(1)
     f_ref = G.graph['ref_freq']
     # calculate the wcet for each task
+    # TODO make a matricial version of these loop, replacing scalar by matrices, eliminating the loops
+    # prone to be executed in OpenMP/GPUs
     for idx, i in enumerate(islands):
         # get the frequency assigned to the island i
         f = i['freqs'][freqs_per_island_idx[idx]]
@@ -404,6 +407,8 @@ def define_rel_deadlines2(G) -> bool:
 # assign relative deadline to each node
 # TODO not scalable code with compexity O(n!)
 # return false if the deadline is not feasible
+# TODO it's also very inneficient because this is calculated for every frequency for every placement.
+# the critical path and the relative deadlines could be pre-processed only once at startup
 def define_rel_deadlines(G) -> bool:
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
@@ -634,6 +639,7 @@ def check_utilization() -> bool:
             # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
             if utilization_per_pu[pu] + pu_utilization > 1.0:
                 # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
+                # TODO find a case where worst-fit does not find a solution but minizinc does
                 task_placement = optimal_placement(i['n_pus'],i['placement'],G)
                 if len(task_placement) == 0:
                     return False
@@ -658,6 +664,33 @@ def check_utilization() -> bool:
 # print ('NEW RELATIVE DEADLINES2:')
 # for n in G.nodes:
 #     print (n, G.nodes[n]["rel_deadline"])
+# sys.exit(1)
+
+
+def check_placement_with_max_freq(placement) -> bool:
+    max_freq_array = np.asarray([[i['freqs'][-1] for i in islands]])
+    f_ref_array = np.asarray([[G.graph['ref_freq'] for i in range(n_islands)]])
+    f_ratio_array = f_ref_array / max_freq_array
+    capacity_array = np.asarray([[i['capacity'] for i in islands]])
+    wcet_ref_ns_array = np.asarray([[G.nodes[t]['wcet_ref_ns'] for t in range(len(G.nodes))]])
+    wcet_ref_array = np.asarray([[G.nodes[t]['wcet_ref'] for t in range(len(G.nodes))]])
+    wcet_delta_array = wcet_ref_array-wcet_ref_ns_array
+    capacity_array = capacity_array.transpose()
+
+    mult_array = capacity_array * wcet_delta_array
+    print (mult_array)
+    print (f_ratio_array.shape, mult_array.shape)
+    mult_array2 = f_ratio_array * mult_array
+    print (mult_array2)
+    wcet_ref_ns_array_tp = wcet_ref_ns_array.transpose()  
+    print (mult_array2.shape)
+    print (wcet_ref_ns_array_tp.shape)
+    wcet = mult_array2 * wcet_ref_ns_array_tp
+    print (wcet)
+    pass
+
+# placement = [[9, 8, 7, 6, 4, 3, 2, 0, 1, 5], [], []]
+# check_placement_with_max_freq(placement)
 # sys.exit(1)
 
 # The number of combinations of t tasks in i islands
@@ -700,39 +733,44 @@ terminate_counter_names = [
 ['pu utilization violation']
 ]
 
+# Simplified algoritm used to prune some task placements
+# out of the solution space
+# Visiting in the reverse order to simplify the deletion from the list
+# for l in range(search_space_size,0,-1):
+#     if not check_placement_with_max_freq(leaf_list[l].islands):
+#         print ('deleted placement', leaf_list[l].islands)
+#         del(leaf_list[l])
 
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
-islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
-islands[1]["placement"] = []
-islands[2]["placement"] = []
-freqs_per_island_idx = [0,1,0]
-define_wcet()
-feasible = define_rel_deadlines(G)
-feasible2 = check_utilization()
-power = define_power()
-print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-for t in range(len(G.nodes)):
-    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+# islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
+# islands[1]["placement"] = []
+# islands[2]["placement"] = []
+# freqs_per_island_idx = [0,1,0]
+# define_wcet()
+# feasible = define_rel_deadlines(G)
+# feasible2 = check_utilization()
+# power = define_power()
+# print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+# for t in range(len(G.nodes)):
+#     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+# sys.exit(1)
 
-sys.exit(1)
-
-
-best_power = 999999.0
-best_freq = None
-for i in range(len(freq_seq)):
-   freqs_per_island_idx = freq_seq[i]
-   define_wcet()
-   feasible = define_rel_deadlines(G)
-   feasible2 = check_utilization()
-   power = define_power()
-   print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-   if power < best_power and feasible and feasible2:
-       best_power = power
-       best_freq = list(freqs_per_island_idx)
-print ('BEST POWER:')
-print ("{:.2f}".format(best_power), best_freq)
-sys.exit(1)
+# best_power = 999999.0
+# best_freq = None
+# for i in range(len(freq_seq)):
+#    freqs_per_island_idx = freq_seq[i]
+#    define_wcet()
+#    feasible = define_rel_deadlines(G)
+#    feasible2 = check_utilization()
+#    power = define_power()
+#    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+#    if power < best_power and feasible and feasible2:
+#        best_power = power
+#        best_freq = list(freqs_per_island_idx)
+# print ('BEST POWER:')
+# print ("{:.2f}".format(best_power), best_freq)
+# sys.exit(1)
 
 # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
 Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
