@@ -680,7 +680,7 @@ leaf_list = tree.task_island_combinations(n_islands,len(G.nodes))
 search_space_size = len(leaf_list)
 # this is the sequence the set of frequencies must be evaluated
 freq_seq = create_frequency_sequence()
-freq_cnts = [0]*len(freq_seq)
+# freq_cnts = [0]*len(freq_seq)
 print ('Frequency sequences:', len(freq_seq))
 
 # teminate search conditions used to understand the most prevalent ones
@@ -707,6 +707,9 @@ terminate_counter_names = [
 #    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
 #sys.exit(1)
 
+# class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
+Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
+keep_evaluating_freq_seq = True
 
 best_power = float("inf")
 best_task_placement = [0]*n_islands
@@ -729,9 +732,11 @@ for l in leaf_list:
         print ('Checking solution',l_idx, 'out of',search_space_size, 'possible mappings')
     if l_idx >500:
         break
-    for f in range(len(freq_seq)):
+    # for f in range(len(freq_seq)):
+    while keep_evaluating_freq_seq:
         # get the frequency sequence to be tested
-        freqs_per_island_idx = freq_seq[f]
+        #freqs_per_island_idx = freq_seq[f]
+        freqs_per_island_idx = Fdag.get()
         # skip candidate solutions where an island placement is empty but the frequency is not the minimal.
         # It means that this candidate is obviously not an optimal one
         skip_candidate = False
@@ -741,6 +746,7 @@ for l in leaf_list:
                 skip_candidate = True
                 break
         if skip_candidate:
+            keep_evaluating_freq_seq = Fdag.next()
             continue
         if debug:
             print ('PLACEMENT and FREQs')
@@ -754,13 +760,17 @@ for l in leaf_list:
         # If so, divide the dag deadline proportionly to the weight of each node in the critical path
         if not define_rel_deadlines(G): # TODO could have some variability in rel deadline assingment
             bad_solutions =bad_solutions +1
-            freq_cnts[f] = freq_cnts[f] +1
+            # freq_cnts[f] = freq_cnts[f] +1
+            Fdag.not_viable()
+            keep_evaluating_freq_seq = Fdag.next()
             continue
         # check the island/processor utilization feasibility
         # if not pu_utilization(0):
         if not check_utilization():
             bad_solutions =bad_solutions +1
-            freq_cnts[f] = freq_cnts[f] +1
+            # freq_cnts[f] = freq_cnts[f] +1
+            Fdag.not_viable()
+            keep_evaluating_freq_seq = Fdag.next()
             continue
         # Since this solutions is feasible, check whether this was the lowest power found so far.
         # If so, update the best solution
@@ -778,6 +788,8 @@ for l in leaf_list:
                 print ('WCET and REL DEADLINE:')
                 for n in G.nodes:
                     print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
+        
+        keep_evaluating_freq_seq = Fdag.next()
 
     l_idx = l_idx +1
 
@@ -800,8 +812,9 @@ print ('total candidates evaluated', evaluated_solutions,
     'bad candidates', bad_solutions, "({:.4f}%)".format(float(bad_solutions)/float(evaluated_solutions)),
     'potential solution', potential_solutions, "({:.4f}%)".format(float(potential_solutions)/float(evaluated_solutions)),
     'best solutions', best_solutions, "({:.4f}%)".format(float(best_solutions)/float(evaluated_solutions)))
-sum_freqs = sum(freq_cnts)
+freq_cnts = Fdag.get_counters()
+sum_freqs = sum([i[0]+i[1] for i in freq_cnts])
 print ('freq histogram (unfeasible candidates):')
 for i in range(len(freq_cnts)):
     if freq_cnts[i] != 0 :
-        print ("{:.2f}".format(freq_cnts[i]/sum_freqs), freq_seq[i])
+        print ("{:.2f}".format(freq_cnts[i][0]/sum_freqs), ", {:.2f}".format(freq_cnts[i][1]/sum_freqs), freq_seq[i])

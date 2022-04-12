@@ -7,9 +7,11 @@ import sys
 
 class Freq_DAG:
     # it assumes that the islands were previouly sorted by their capacity, i.e., 
+    # num_freq_list represents the number of frequencies on each island.
     # num_freq_list[0] represents the frequency index of the island with the lowest performance
     def __init__(self, num_freq_list):
-        self.root = list(num_freq_list)
+        # the root is a index to the freq set with highest frequency for each island
+        self.root = [i-1 for i in num_freq_list]
         self.n_nodes = 0
         self.n_islands = len(self.root)
         self.node2freq_list = list()
@@ -17,7 +19,11 @@ class Freq_DAG:
         self.G = self._create_dag()
         # this indexes are used when transversing the graph in the deacresing freq order
         self.access_order = self._create_access_order()
-        self.curr_node = 0
+        self.curr_node_idx = 0
+        # performance counters to check how many times each freq is checked
+        # freq_cnts[i][0] for viable solutions
+        # freq_cnts[i][1] for NOT viable solutions
+        self.freq_cnts = [(0,0) for i in range(len(self.node2freq_list))]
     
     # it creates the dag that represents the dominance among the freq sequences
     def _create_dag(self):
@@ -210,6 +216,9 @@ class Freq_DAG:
         for n in self.G.nodes():
             self.G.nodes[n]['skip'] = False
 
+    # get the performance counters
+    def get_counters(self):
+        return self.freq_cnts
 
     # go to the next frequency set, according to the created access order, skiping the sets 
     # already marked to be skipped
@@ -219,6 +228,12 @@ class Freq_DAG:
             # I suppose it is not expected to get to this point
             print ('ERROR: not expected to reach this point in function "next"')
             sys.exit(1)
+        # when next is called, it means that, if this node was not marked to be skiped, then this is a viable solution 
+        curr_node = self.access_order[self.curr_node_idx]
+        if not self.G.nodes[curr_node]['skip']:
+            aux_tuple = (self.freq_cnts[curr_node][0] + 1, self.freq_cnts[curr_node][1])
+            self.freq_cnts[curr_node] = aux_tuple
+
         found = False
         initial_idx = self.curr_node_idx
         # keep the loop until a node that should not be skipped if found or reach the end of the dag
@@ -242,6 +257,9 @@ class Freq_DAG:
     def not_viable(self):
         # mark all nodes from the current node until the last one with 'skip' = True
         curr_node = self.access_order[self.curr_node_idx]
+        # the curr node was said to be not a viable solution
+        aux_tuple = (self.freq_cnts[curr_node][0], self.freq_cnts[curr_node][1] + 1)
+        self.freq_cnts[curr_node] = aux_tuple
         # Stack to store all the nodes of the dag
         s1 = []
         # Push the current node
@@ -253,30 +271,30 @@ class Freq_DAG:
             for s,t in self.G.out_edges(curr_node):
                 s1.append(t)
 
-
-F = Freq_DAG([2,2,2])
-F._create_access_order()
-F.reinitiate_dag()
-print (F.get())
-F.next()
-print (F.get())
-F.next()
-print (F.get())
-F.next()
-print (F.get())
-F.not_viable()
-F.print_dag()
-F.next()
-print (F.get())
-F.next()
-print (F.get())
-F.next()
-print (F.get())
-F.next()
-print (F.get())
-print (F.next())
-print (F.get())
-print (F.next())
-print (F.get())
-print (F.next())
-print (F.get())
+# Testing
+# F = Freq_DAG([2,2,2])
+# F._create_access_order()
+# F.reinitiate_dag()
+# print (F.get())
+# F.next()
+# print (F.get())
+# F.next()
+# print (F.get())
+# F.next()
+# print (F.get())
+# F.not_viable()
+# F.print_dag()
+# F.next()
+# print (F.get())
+# F.next()
+# print (F.get())
+# F.next()
+# print (F.get())
+# F.next()
+# print (F.get())
+# print (F.next())
+# print (F.get())
+# print (F.next())
+# print (F.get())
+# print (F.next())
+# print (F.get())
