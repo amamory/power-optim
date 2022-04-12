@@ -21,6 +21,7 @@ enum EDGE = anon_enum(N_EDGES);
 enum CORE = anon_enum(N_CORES);
 array [TASK] of int: D;                   % task deadline
 array [TASK] of int: T;                   % task wcet
+array [TASK] of float: U;                 % CPU utilization per task
 array [1..N_EDGES,1..2] of 1..N_TASKS: E;      % the DAG edges: source node to target node
 
 % BOUNDS FOR MAKESPAN 
@@ -48,6 +49,12 @@ array [TASK,1..2] of var 0..total: used;
 % a job runs on a single workstation
 constraint forall(i in TASK)(
              sum(row(sel,i)) == 1);
+
+constraint %% utilization constraint
+    forall(j in CORE) (
+        sum(i in TASK) (
+            int2float(sel[i,j]) * U[i]) <= 1.0
+    );
 
 constraint %% objective: minimize the makespan
     forall(j in CORE) (

@@ -23,6 +23,9 @@ T = [0,10,10,16,10,10,10,10,10,0];
 % relative deadline to each task
 D = [0,33,33,44,33,27,34,29,34,0];
 
+% cpu utilization per task: T[i]/D[i]
+U = [0.0, 0.3030, 0.3030, 0.3636, 0.3030, 0.3704, 0.2941, 0.3448, 0.2941, 0.0];
+
 % from: the leaving node for each edge
 % to: the entering node for each edge
 % list of edges indicating which nodes are connected
