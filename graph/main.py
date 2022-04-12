@@ -107,6 +107,8 @@ for i in islands['hw']:
     if  len(data.keys()) != 3 or data.keys()[0] != 'freq' or data.keys()[1] != 'busy_power_avg' or data.keys()[2] != 'idle_power_avg':
         print ('ERROR: file', i['power_file'], 'has an invalid syntax')
         sys.exit(1)
+    # it is IMPORTANT that the power data is sorted in ascending frequency
+    data.sort_values(by=['freq'], inplace=True)
     i['busy_power'] = list(data.busy_power_avg)
     i['idle_power'] = list(data.idle_power_avg)
     i['freqs'] = list(data.freq)
@@ -202,10 +204,11 @@ def island_power(i) -> float:
         # assumes that wcet was calculated previously
         wcet = G.nodes[t]['wcet']
         utilization = utilization + (float(wcet)/float(activation_period))
-    #print (deployed_tasks, wcet, z, activation_period, utilization)
+    island_power = (islands[i]['n_pus'] * idle_power) + (busy_power-idle_power) * float(utilization)
+    # print (i, utilization, island_power, deployed_tasks, freqs_per_island_idx)
 
     # TODO put a comment about (islands[i]['n_pus'] * idle_power)
-    return (islands[i]['n_pus'] * idle_power) + (busy_power-idle_power) * float(utilization)
+    return island_power
 
 
 # sum up the power of each island based on current task placement and island frequency
@@ -700,9 +703,11 @@ terminate_counter_names = [
 
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
-# islands[0]["placement"] = [9, 8, 7, 6, 5, 4, 3, 2, 1,0 ]
-# islands[1]["placement"] = []
+# islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0]
+# islands[1]["placement"] = [5, 1]
 # islands[2]["placement"] = []
+# best_power = 999999.0
+# best_freq = None
 # for i in range(len(freq_seq)):
 #    freqs_per_island_idx = freq_seq[i]
 #    define_wcet()
@@ -710,6 +715,11 @@ terminate_counter_names = [
 #    feasible2 = check_utilization()
 #    power = define_power()
 #    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+#    if power < best_power and feasible and feasible2:
+#        best_power = power
+#        best_freq = list(freqs_per_island_idx)
+# print ('BEST POWER:')
+# print ("{:.2f}".format(best_power), best_freq)
 # sys.exit(1)
 
 # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated

@@ -272,20 +272,15 @@ class Freq_DAG:
                 continue
             # 2) skip candidate solutions where an island placement is empty but the frequency is not the minimal.
             # It means that this candidate is "obviously" not an optimal one
-            # TODO BUG weird result!!! how come that for the placement [[9, 8, 7, 6, 5, 4, 3, 2, 1, 0], [], []]
-            # -  303103.32 True True [2, 2, 2]
-            # - 1146498.47 True True [2, 0, 0]
-            # The power calculation is not maling sense !!! the islands with no task should be with the lowest frequency
-
-            # skip_candidate = False
-            # freq_seq = self.G.nodes[n]['freq']
-            # for i in range(self.n_islands):
-            #     freq_idx = freq_seq[i]
-            #     if len(self.placement[i]) ==  0 and freq_idx != 0:
-            #         skip_candidate = True
-            #         break
-            # if skip_candidate:
-            #     continue
+            skip_candidate = False
+            freq_seq = self.G.nodes[n]['freq']
+            for i in range(self.n_islands):
+                freq_idx = freq_seq[i]
+                if len(self.placement[i]) ==  0 and freq_idx != 0:
+                    skip_candidate = True
+                    break
+            if skip_candidate:
+                continue
             found = True
             break
 
