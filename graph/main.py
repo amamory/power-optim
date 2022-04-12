@@ -677,6 +677,8 @@ def check_utilization() -> bool:
 #  So, assuming C(2,30) = 1,073,741,824, and assuming each node uses 1 byte of mem, 
 #  which is obviously understimated, this tree would use at least 1Gbyte RAM.
 leaf_list = tree.task_island_combinations(n_islands,len(G.nodes))
+# uncomment this to start the search with all tasks in the island with the biggest capacity
+#leaf_list = list(reversed(leaf_list))
 search_space_size = len(leaf_list)
 # this is the sequence the set of frequencies must be evaluated
 freq_seq = create_frequency_sequence()
@@ -696,16 +698,19 @@ terminate_counter_names = [
 ]
 
 
-#for i in range(n_islands):
+# for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
-#for i in range(len(freq_seq)):
-#    freqs_per_island_idx = freq_seq[i]
-#    define_wcet()
-#    feasible = define_rel_deadlines(G)
-#    feasible2 = check_utilization()
-#    power = define_power()
-#    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-#sys.exit(1)
+islands[0]["placement"] = [9, 8, 7, 6, 5, 4, 3, 2, 1,0 ]
+islands[1]["placement"] = []
+islands[2]["placement"] = []
+for i in range(len(freq_seq)):
+   freqs_per_island_idx = freq_seq[i]
+   define_wcet()
+   feasible = define_rel_deadlines(G)
+   feasible2 = check_utilization()
+   power = define_power()
+   print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+sys.exit(1)
 
 # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
 Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
@@ -724,6 +729,7 @@ for l in leaf_list:
     # assume the following task placement onto the set of islands
     for i in range(n_islands):
         islands[i]["placement"] = l.islands[i]
+    Fdag.set_task_placement(l.islands)
     # Initialize freq to each island to their respective max freq.
     # The rational is that, if this task placement does not respect the DAG deadline
     # assigning their maximal frequencies, then this task placement cannot be a valid solution and
@@ -738,17 +744,6 @@ for l in leaf_list:
         # get the frequency sequence to be tested
         #freqs_per_island_idx = freq_seq[f]
         freqs_per_island_idx = Fdag.get()
-        # skip candidate solutions where an island placement is empty but the frequency is not the minimal.
-        # It means that this candidate is obviously not an optimal one
-        skip_candidate = False
-        for i in range(n_islands):
-            # print (i, islands[i]["placement"], freqs_per_island_idx[i], freqs_per_island_idx)
-            if len(islands[i]["placement"]) ==  0 and freqs_per_island_idx[i] != 0:
-                skip_candidate = True
-                break
-        if skip_candidate:
-            keep_evaluating_freq_seq = Fdag.next()
-            continue
         # if debug:
         # print ('PLACEMENT and FREQs')
         # for i in range(n_islands):

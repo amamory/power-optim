@@ -1,6 +1,22 @@
 # Creates a DAG representing the dominance among all sequeces of frequencies for all islands.
 # The starting node represents the max freq for each island and the subsequent nodes represent lower frequencies.
 # The last node represents the lowest freq for each island.
+
+# Some very simplistic profiling shows that this method obtain about 20% execution time reduction.
+
+# solution found with power 315886.56 [[9, 8, 7, 6, 4, 3, 2, 1], [5], [0]] [2, 2, 2]
+# total candidates evaluated 9813 bad candidates 99 (0.0101%) potential solution 9714 (0.9899%) best solutions 7 (0.0007%)
+# real    0m6.785s
+# user    0m7.207s
+# sys     0m0.836s
+
+# solution found with power 315886.56 [[9, 8, 7, 6, 4, 3, 2, 1], [5], [0]] [2, 2, 2]
+# total candidates evaluated 12141 bad candidates 487 (0.0401%) potential solution 11654 (0.9599%) best solutions 9 (0.0007%)
+# real    0m7.551s
+# user    0m7.927s
+# sys     0m0.778s
+
+
 import networkx as nx
 import pandas as pd
 import sys
@@ -20,6 +36,8 @@ class Freq_DAG:
         # this indexes are used when transversing the graph in the deacresing freq order
         self.access_order = self._create_access_order()
         self.curr_node_idx = 0
+        # stores the current task placement being evaluated
+        self.placement = [None for i in range(self.n_islands)]
         # performance counters to check how many times each freq is checked
         # freq_cnts[i][0] for viable solutions
         # freq_cnts[i][1] for NOT viable solutions
@@ -210,11 +228,17 @@ class Freq_DAG:
         f.write("}\n")
         f.close()
 
+    # the task placement information is used in an secondary optimization
+    def set_task_placement(self,curr_placement):
+        for idx, p in enumerate(curr_placement):
+            self.placement[idx] = p
+
     # used to start over another search whihout creating the whole dag again
     def reinitiate_dag(self):
         self.curr_node_idx = 0
         for n in self.G.nodes():
             self.G.nodes[n]['skip'] = False
+        self.placement = [None for i in range(self.n_islands)]
 
     # get the performance counters
     def get_counters(self):
@@ -228,20 +252,43 @@ class Freq_DAG:
             # I suppose it is not expected to get to this point
             print ('ERROR: not expected to reach this point in function "next"')
             sys.exit(1)
+        if self.placement[0] == None:
+            print ('ERROR: set_task_placement must be called before using next')
+            sys.exit(1)
+        initial_idx = self.curr_node_idx
         # when next is called, it means that, if this node was not marked to be skiped, then this is a viable solution 
-        curr_node = self.access_order[self.curr_node_idx]
+        curr_node = self.access_order[initial_idx]
         if not self.G.nodes[curr_node]['skip']:
             aux_tuple = (self.freq_cnts[curr_node][0] + 1, self.freq_cnts[curr_node][1])
             self.freq_cnts[curr_node] = aux_tuple
 
         found = False
-        initial_idx = self.curr_node_idx
-        # keep the loop until a node that should not be skipped if found or reach the end of the dag
+        # Find the next valid freq set or reach the end of the search
+        # There are 2 situations where a freq set should be discarded: 
         for n in self.access_order[self.curr_node_idx+1:]:
             initial_idx = initial_idx +1
-            if not self.G.nodes[n]['skip']:
-                found = True
-                break
+            # 1) check whether this node should be skiped by dominance rules
+            if self.G.nodes[n]['skip']:
+                continue
+            # 2) skip candidate solutions where an island placement is empty but the frequency is not the minimal.
+            # It means that this candidate is "obviously" not an optimal one
+            # TODO weird result!!! how come that for the placement [[9, 8, 7, 6, 5, 4, 3, 2, 1, 0], [], []]
+            # -  303103.32 True True [2, 2, 2]
+            # - 1146498.47 True True [2, 0, 0]
+            # The power calculation is not maling sense !!! the islands with no task should be with the lowest frequency
+
+            # skip_candidate = False
+            # freq_seq = self.G.nodes[n]['freq']
+            # for i in range(self.n_islands):
+            #     freq_idx = freq_seq[i]
+            #     if len(self.placement[i]) ==  0 and freq_idx != 0:
+            #         skip_candidate = True
+            #         break
+            # if skip_candidate:
+            #     continue
+            found = True
+            break
+
         # stop the index in the last valid node
         if found:
             self.curr_node_idx = initial_idx
