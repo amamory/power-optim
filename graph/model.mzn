@@ -1,90 +1,95 @@
+% The set of tasks (TASK) with  predence constraints modeled as a DAG,
+% must be schedule on any of hw processing units (PU) represented by set CORE|.
+% The tasks have a duration (T). 
 
+% Constraints:
+% - a core can only run one job at a time
+% - a job run once in a single core 
+% - a job cannot be preempted
+% - a job can only execute when all its preceeding tasks were executed
+
+% Objective:
+% - minimize the makespan (end)
 
 % MAIN DEFINITIONS
 int : N_TASKS;
-int : N_ISLANDS;
-int : N_DAGS;
 int : N_EDGES;
-int : D;
+int : N_CORES;
+int : Ddag;
 enum TASK = anon_enum(N_TASKS);
-enum DAG = anon_enum(N_DAGS);
-enum ISLAND = anon_enum(N_ISLANDS);
 enum EDGE = anon_enum(N_EDGES);
-array [ISLAND,1..4] of int: I;                % array of islands
-array [ISLAND] of 0.0 .. 1.0: I_cap;          % the capacity of each island
-array [TASK,1..2] of int: T;                  % array of tasks
-array [DAG,1..3] of int: G;                   % array of DAGs
-array [1..N_EDGES,1..2] of 0..N_TASKS-1: E;   % edges of the DAG !!!! TODO: currently considering only one DAG !!!!
+enum CORE = anon_enum(N_CORES);
+array [TASK] of int: D;                   % task deadline
+array [TASK] of int: T;                   % task wcet
+array [1..N_EDGES,1..2] of 1..N_TASKS: E;      % the DAG edges: source node to target node
 
-% BOUNDS
-int: total = sum(i in TASK)(max(row(T,i)));
-int: max_int = max(total,ub_p);
-
-% sum the number of cores in each island
-int: total_cores = sum(i in I)(i[0]);
-array [1..N_TASKS,1..total_cores] of int: C;    % WCET for each task assuming each core. Note that the freq for each core/island is fixed
+% BOUNDS FOR MAKESPAN 
+% UPPER BOUND: since a job runs on a single workstation, lets be pessimistic and assume that the longest duration will be chosen for each pair job/core
+% i.e., for each job, choose the longest duration
+int: total = sum(i in TASK)(T[i]);  % total duration, upper bound for makespan
+% LOWER BOUND: lets be optimistic and choose the shortest durations for each Job, sum their durations, and divide by the number of cores
+%int: lb = ceil(int2float(sum(T))) / int2float(card(CORE));  % total duration, lower bound for makespan
+int: lb = 0;
 
 % AUX CONTANTS
-int: digs = ceil(log(10.0,int2float(max_int)));  % calculate the max number of digits just for printing the output
+int: digs = ceil(log(10.0,int2float(total)));  % calculate the max number of digits just for printing the output
+CORE: last = max(CORE);
 
 % VARIABLES
-array [1..N_TASKS,1..total_cores] of var 0..1: sel;  % 1 when the ws is selected to execute the task
-array [1..N_TASKS] of 0..total: f;                   % finishing times of all tasks
+array [TASK,CORE] of var 0..total: s;           % start times
+array [TASK,CORE] of var 0..1: sel;             % 1 when the ws is selected to execute the job
+var lb..total: end;                            % total end time, the variable representing the makespan
+% aux variable used only to hold the selected initial time and duration for each job
+% this will ease the DAG precedence constraint
+% used[j,1]: initial time
+% used[j,2]: duration
+array [TASK,1..2] of var 0..total: used;
 
-% #####################################
-% UTILIZATION CONSTRAINTS
-% #####################################
+% a job runs on a single workstation
+constraint forall(i in TASK)(
+             sum(row(sel,i)) == 1);
 
-% a core hosts tasks up to its maximum utilization of 1.0
-constraint 
-    forall (g in G)(
-        let { 
-            var DAG: p = g[1]; % DAG activation period
-        } in        
-        forall(t in 1..N_TASKS)(
-            forall(c in 1..total_cores)(
-                sum(int2float(sel[t][c]*C[t][c])/int2float(p)) <= 1.0
-            )
-            % TODO replace p by relative deadline
+constraint %% objective: minimize the makespan
+    forall(j in CORE) (
+        forall(i in TASK) (
+            sel[i,j]*(s[i,j] + T[i]) <= end)
+    );
+
+constraint end <= Ddag;
+
+% helper constraint to specify the DAG precedence
+constraint
+    forall(i in TASK)(
+        forall(j in CORE where sel[i,j] == 1) (
+            used[i,1] == s[i,j] /\ used[i,2] == T[i] 
         )
     );
-% #####################################
-% PRECEDENCE CONSTRAINTS
-% #####################################
 
-% finishing time for the initial node equals to its deadline. always identified as 'node 0'
-% wcet 3 10 
-% capacity 0.2 
-% freq 50 
-% ref freq 1000
-% = 31.000000000000004
-constraint f[0] = T[0][3];
+% job0 has precedence over job1
+predicate precedence(var int: start0, var int: duration0, var int: start1) =
+  start0 + duration0 <= start1 ;
 
-constraint 
-    forall(i in 1..TASK)(
-        % e[0]:  source node
-        % e[1]:  target node
-        % T[i][3]: deadline for task T_i
-        f[i] = T[i][3] + max(e in E where e[1] = i)( f[e[0]] )
+constraint % the DAG precedence
+    forall(i in EDGE) (
+        let { 
+            var TASK: sj = to_enum(TASK,E[i,1]); % source job
+            var TASK: tj = to_enum(TASK,E[i,2]); % target job
+            } in 
+            precedence (used[sj,1], used[sj,2], used[tj,1])
     );
 
-% the finishing time of the last node
-% the deadline constraint
-constraint f[TASK] <= D;
-
-% #####################################
-% OTHER CONSTRAINTS
-% #####################################
-
-% a task runs on a single core
-constraint 
-    forall(i in TASK)(
-        sum(row(sel,i)) == 1
+predicate no_overlap(var int: start0, var int: duration0,
+                     var int: start1, var int: duration1) =
+  start0 + duration0 <= start1 \/ start1 + duration1 <= start0;
+  
+constraint %% ensure no overlap of tasks
+    forall(j in CORE) (
+        forall(i,k in TASK where i < k) (
+            no_overlap(s[i,j],T[i], s[k,j],T[k])
+        )
     );
 
-
-
-% solve minimize end; % makespan
+% solve minimize end;
 solve satisfy;
 
 output ["end = \(end)\n"] ++
@@ -92,6 +97,11 @@ output ["end = \(end)\n"] ++
        ["lb = \(lb)\n"] ++
        ["selected cores:\n"] ++
        [ show_int(digs,sel[i,j]) ++ " " ++ 
-         if j == total_cores then "\n" else "" endif |
-         i in TASK, j in 1..total_cores 
+         if j == last then "\n" else "" endif |
+         i in TASK, j in CORE 
+       ] ++
+       ["start_time, duration\n"] ++ 
+       [ show_int(digs,used[i,j]) ++ " " ++ 
+         if j == 2 then "\n" else "" endif |  
+         i in TASK, j in 1..2 
        ];

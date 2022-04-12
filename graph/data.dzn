@@ -1,85 +1,43 @@
+% tiny instance for the model that minimizes the makespan precedence constraint
+
+% The following instance of the problem: 
+%   placement = [[9, 8, 7, 6, 4, 3, 2, 0, 1, 5], [], []]
+%   freq_seq = [0, 1, 0]
+% results in:
+%   371293.91 True False 
+% i.e., the instance does not pass the utilization constraint, 
+% assuming worst-fit task placement heuristics.
+% The goal here is to confirm whether this instance is indeed 
+% unfeasible, or it is a limitation of the worst-fit heuristics.
+
+N_CORES = 2;
 N_TASKS = 10;
-N_ISLANDS = 2;
-N_DAGS = 1;
 N_EDGES = 15;
-% the deadline
-D = 1000;
 
-% List of islands I of size N_ISLANDS. An island i in I has:
-% - # of processing units
-% - busy power consumption
-% - idle power consumption
-% - the frequency it runs
-I = [| 2, 100, 20, 100
-     | 2,  20,  2, 50
-     | 2,  50,  5, 100
-];
+% the dag deadline
+Ddag = 100;
 
-% the capacity (0.0, 1.0] of each island
-I_cap = [ 1.0, 0,2, 0,5];
+% wcet for each task
+T = [0,10,10,16,10,10,10,10,10,0];
 
-% it points to the island each core belongs
-I_idx = [1,1,2,2,3,3]
-
-% Yet related to islands. An island also have a finite list of frequencies to assign to itself
-% I_f = [
-%     | 100, 500, 1000
-%     | 50, 100, 200
-%     | 100, 200, 300
-%     ];
-
-% List of DAGs G of size N_DAGS. A DAG g in G has:
-% - an activation_period
-% - a deadline
-% - a reference frequency used by its tasks
-G = [ | 100, 100, 1000
-    ];
-
-% List of tasks T of size N_TASKS. A task t in T has: 
-% - wcet at the reference freq
-% - time spent in the non scalable part
-% - relative deadline <===== TODO change it according to the selected 
-T = [ | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-      | 10, 3, 31
-    ];
-
-% wcet for each task assuming each core
-% these are calculated a priori
-C = [ | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-      | 73, 73, 31, 31, 38, 38
-    ];
+% relative deadline to each task
+D = [0,33,33,44,33,27,34,29,34,0];
 
 % from: the leaving node for each edge
 % to: the entering node for each edge
 % list of edges indicating which nodes are connected
-E =  [| 0,1
-      | 0,2
-      | 0,3
+E =  [| 1,2
+      | 1,3
       | 1,4
-      | 2,4
       | 2,5
       | 3,5
-      | 3,8
+      | 3,6
       | 4,6
-      | 4,7
-      | 4,8
+      | 4,9
       | 5,7
-      | 6,9
-      | 7,9
-      | 8,9 |]; 
+      | 5,8
+      | 5,9
+      | 6,8
+      | 7,10
+      | 8,10
+      | 9,10 |]; 

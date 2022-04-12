@@ -703,24 +703,36 @@ terminate_counter_names = [
 
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
-# islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0]
-# islands[1]["placement"] = [5, 1]
-# islands[2]["placement"] = []
-# best_power = 999999.0
-# best_freq = None
-# for i in range(len(freq_seq)):
-#    freqs_per_island_idx = freq_seq[i]
-#    define_wcet()
-#    feasible = define_rel_deadlines(G)
-#    feasible2 = check_utilization()
-#    power = define_power()
-#    print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-#    if power < best_power and feasible and feasible2:
-#        best_power = power
-#        best_freq = list(freqs_per_island_idx)
-# print ('BEST POWER:')
-# print ("{:.2f}".format(best_power), best_freq)
-# sys.exit(1)
+islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
+islands[1]["placement"] = []
+islands[2]["placement"] = []
+freqs_per_island_idx = [0,1,0]
+define_wcet()
+feasible = define_rel_deadlines(G)
+feasible2 = check_utilization()
+power = define_power()
+print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+for t in range(len(G.nodes)):
+    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+
+sys.exit(1)
+
+
+best_power = 999999.0
+best_freq = None
+for i in range(len(freq_seq)):
+   freqs_per_island_idx = freq_seq[i]
+   define_wcet()
+   feasible = define_rel_deadlines(G)
+   feasible2 = check_utilization()
+   power = define_power()
+   print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+   if power < best_power and feasible and feasible2:
+       best_power = power
+       best_freq = list(freqs_per_island_idx)
+print ('BEST POWER:')
+print ("{:.2f}".format(best_power), best_freq)
+sys.exit(1)
 
 # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
 Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
