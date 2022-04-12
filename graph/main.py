@@ -709,7 +709,7 @@ terminate_counter_names = [
 
 # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
 Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
-keep_evaluating_freq_seq = True
+
 
 best_power = float("inf")
 best_task_placement = [0]*n_islands
@@ -733,6 +733,7 @@ for l in leaf_list:
     if l_idx >500:
         break
     # for f in range(len(freq_seq)):
+    keep_evaluating_freq_seq = True
     while keep_evaluating_freq_seq:
         # get the frequency sequence to be tested
         #freqs_per_island_idx = freq_seq[f]
@@ -748,11 +749,11 @@ for l in leaf_list:
         if skip_candidate:
             keep_evaluating_freq_seq = Fdag.next()
             continue
-        if debug:
-            print ('PLACEMENT and FREQs')
-            for i in range(n_islands):
-                print(islands[i]["placement"])
-            print(freqs_per_island_idx)
+        # if debug:
+        # print ('PLACEMENT and FREQs')
+        # for i in range(n_islands):
+        #     print(islands[i]["placement"])
+        # print(freqs_per_island_idx)
         evaluated_solutions = evaluated_solutions +1
         # define the wcet for each task based on which island each task is placed and the freq for each island
         define_wcet()
@@ -790,7 +791,7 @@ for l in leaf_list:
                     print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
         
         keep_evaluating_freq_seq = Fdag.next()
-
+    Fdag.reinitiate_dag()
     l_idx = l_idx +1
 
 print("")
