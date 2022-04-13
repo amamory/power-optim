@@ -693,76 +693,58 @@ def check_placement_with_max_freq(placement_array) -> bool:
     n_nodes = len(G.nodes)
     print('placement')
     print (placement_array)
-    placement_array_tp = placement_array.transpose()
+
+    ################
+    ##### these are the island-related matrices, defined when the frequency changes
+    ################
+    # 1 x n_islands matrix with the frequencies assigned to each island, in this case, the highest frequency for each island
     max_freq_array = np.asarray([[i['freqs'][-1] for i in islands]])
-    f_ref_array = np.asarray([[G.graph['ref_freq'] for i in range(n_islands)]])
-    f_ratio_array = f_ref_array / max_freq_array
-    print ('freq')
-    # print (max_freq_array)
-    # print (f_ref_array)
-    print (f_ratio_array)
-    print ('wcet')
-    wcet_ref_ns_array = np.asarray([[G.nodes[t]['wcet_ref_ns'] for t in range(len(G.nodes))] for i in range(n_islands)])
-    wcet_ref_array = np.asarray([[G.nodes[t]['wcet_ref'] for t in range(len(G.nodes))] for i in range(n_islands)])
-    wcet_delta_array = wcet_ref_array-wcet_ref_ns_array
-
-    print (wcet_ref_ns_array)
-    # print (wcet_ref_array)
-    #print (wcet_delta_array)
-    wcet_delta_placement_array = placement_array * wcet_delta_array
-    wcet_ref_ns_palcement_array = placement_array * wcet_ref_ns_array
-    print (wcet_delta_placement_array)
-
-    print ('capacity')
+    ################
+    ##### these are the island-related matrices, defined once at the initialization 
+    ################
+    # the scalar ref_freq is expanded into 1 x n_islands matrix
+    f_ref_array    = np.asarray([[G.graph['ref_freq'] for i in range(n_islands)]])
+    # 1 x n_islands matrix with the capacity of each island
     capacity_array = np.asarray([[i['capacity'] for i in islands]])
-    #capacity_array = capacity_array.transpose()
-    #f_ratio_array = f_ratio_array.transpose
-    # print (capacity_array)
-    # print (f_ratio_array)
-    f_ratio_capacity_array = capacity_array * f_ratio_array
-    # print (f_ratio_capacity_array)
-    # print (f_ratio_capacity_array[0,0])
-    #f_ratio_capacity_array = f_ratio_capacity_array.transpose()
-    # repeat the last column by the number of nodes
-    expanded_ratio = np.asarray([[f_ratio_capacity_array[0,i]]*n_nodes for i in range(n_islands)])#.shape((n_islands,n_nodes))
-    #expanded_ratio = expanded_ratio.transpose()
-    print ('expanded_ratio')
-    print (expanded_ratio)
-    print (expanded_ratio.shape)
-    print ('wcet_delta_placement_array')
-    print (wcet_delta_placement_array)
-    print (wcet_delta_placement_array.shape)
-    testing_array2 = wcet_delta_placement_array * expanded_ratio
-    print (testing_array2)
-    wcet_array = wcet_ref_ns_palcement_array + testing_array2
-    print ('wcet_array')
+    # this is the part of the wcet calculation that does not depend on the task
+    f_ratio_array  = capacity_array * f_ref_array / max_freq_array
+    # repeat the last column by the number of nodes so it is possible to perform operations with the task-related matrices
+    # the result is a n_islands x n_nodes matrix
+    expanded_ratio = np.asarray([[f_ratio_array[0,i]]*n_nodes for i in range(n_islands)])
+
+    ################
+    ##### these are the task-related matrices, defined every new candidate task placement
+    ################
+    # n_islands x n_nodes matrix. Since these 2 matrices are measured using the ref_freq, not the assigned freq,
+    # the result is that the matrix has reapted rows
+    wcet_ref_ns_array = np.asarray([[G.nodes[t]['wcet_ref_ns'] for t in range(len(G.nodes))] for i in range(n_islands)])
+    wcet_ref_array    = np.asarray([[G.nodes[t]['wcet_ref']    for t in range(len(G.nodes))] for i in range(n_islands)])
+    wcet_delta_array  = wcet_ref_array-wcet_ref_ns_array
+    # take into account the placement matrix such that the non-zero values represent the correct island placement
+    # n_islands x n_nodes matrices
+    wcet_delta_placement_array  = placement_array * wcet_delta_array
+    wcet_ref_ns_placement_array = placement_array * wcet_ref_ns_array
+    # the final wcet for all tasks in all islands
+    wcet_array = wcet_ref_ns_placement_array + wcet_delta_placement_array * expanded_ratio
+    # rouding up to have integer wcet
+    wcet_array = np.ceil(wcet_array).astype(int)
+    print ('wcet')
     print (wcet_array)
     sys.exit(1)
-    capacity_array = capacity_array.transpose()
 
-    mult_array = capacity_array * wcet_delta_array
-    print (mult_array)
-    print (f_ratio_array.shape, mult_array.shape)
-    mult_array2 = f_ratio_array * mult_array
-    print (mult_array2)
-    wcet_ref_ns_array_tp = wcet_ref_ns_array.transpose()  
-    print (mult_array2.shape)
-    print (wcet_ref_ns_array_tp.shape)
-    wcet = mult_array2 * wcet_ref_ns_array_tp
-    print (wcet)
-    pass
 
-# n_nodes = len(G.nodes)
-# placement = [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
-# placement_array = np.zeros((n_islands, n_nodes),dtype=int)
-# for i in range(n_islands):
-#     for t in range(n_nodes):
-#         if t in placement[i]:
-#             placement_array[i,t] = 1
-#         else:
-#             placement_array[i,t] = 0
-# check_placement_with_max_freq(placement_array)
-# sys.exit(1)
+np.set_printoptions(precision=2)
+n_nodes = len(G.nodes)
+placement = [[9, 8, 7, 6,  0, 1, 5], [], [2, 3, 4]]
+placement_array = np.zeros((n_islands, n_nodes),dtype=int)
+for i in range(n_islands):
+    for t in range(n_nodes):
+        if t in placement[i]:
+            placement_array[i,t] = 1
+        else:
+            placement_array[i,t] = 0
+check_placement_with_max_freq(placement_array)
+sys.exit(1)
 
 # The number of combinations of t tasks in i islands
 # is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
@@ -816,8 +798,8 @@ terminate_counter_names = [
 #    islands[i]["placement"] = leaf_list[0].islands[i]
 # [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
 islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
-islands[1]["placement"] = [4]
-islands[2]["placement"] = [2]
+islands[1]["placement"] = []
+islands[2]["placement"] = [2, 4]
 # islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
 # islands[1]["placement"] = []
 # islands[2]["placement"] = []

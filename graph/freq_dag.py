@@ -314,8 +314,9 @@ class Freq_DAG:
                 s1.append(t)
 
 # Testing
-# F = Freq_DAG([2,2,2])
+# F = Freq_DAG([3,3,3])
 # F._create_access_order()
+# F.plot()
 # F.reinitiate_dag()
 # print (F.get())
 # F.next()

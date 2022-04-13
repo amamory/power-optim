@@ -50,19 +50,20 @@ array [TASK,1..2] of var 0..total: used;
 constraint forall(i in TASK)(
              sum(row(sel,i)) == 1);
 
-constraint %% utilization constraint
-    forall(j in CORE) (
-        sum(i in TASK) (
-            int2float(sel[i,j]) * U[i]) <= 1.0
-    );
+% ok for dag deadline > period
+% constraint %% utilization constraint
+%     forall(j in CORE) (
+%         sum(i in TASK) (
+%             int2float(sel[i,j]) * U[i]) <= 1.0
+%     );
 
-constraint %% objective: minimize the makespan
+
+constraint %% 
     forall(j in CORE) (
         forall(i in TASK) (
-            sel[i,j]*(s[i,j] + T[i]) <= end)
+            sel[i,j]*(s[i,j] + D[i]) <= Ddag)
     );
 
-constraint end <= Ddag;
 
 % helper constraint to specify the DAG precedence
 constraint
