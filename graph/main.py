@@ -666,15 +666,78 @@ def check_utilization() -> bool:
 #     print (n, G.nodes[n]["rel_deadline"])
 # sys.exit(1)
 
+# This is a matrix-based (i.e. similar to matlab code) for cheking
+# whether the task placement is viable, i.e., the critical path 
+# does not exceed the DAG deadline and PU utilization is below 1.0
+def check_placement_with_max_freq(placement_array) -> bool:
+    # This procedure is divided into the following parts
+    # 1) WCET definition for each task
+    # 2) check the critical path 
+    # 3) calculate relative deadline for each task
+    # 4) check PU utilization constraint
 
-def check_placement_with_max_freq(placement) -> bool:
+    ###########################
+    # 1) WCET definition for each task
+    ###########################
+    # This block of code is equivalent to the following procedural code:
+    # for idx, i in enumerate(islands):
+    #     # get the frequency assigned to the island i
+    #     f = i['freqs'][freqs_per_island_idx[idx]]
+    #     capacity = i['capacity']
+    #     for t in i['placement']:
+    #         wcet_ref_ns = G.nodes[t]['wcet_ref_ns']
+    #         wcet_ref = G.nodes[t]['wcet_ref']
+    #         wcet = wcet_ref_ns + (capacity * (wcet_ref-wcet_ref_ns)/f * f_ref)
+    #         G.nodes[t]["wcet"] = int(math.ceil(wcet))
+
+    n_nodes = len(G.nodes)
+    print('placement')
+    print (placement_array)
+    placement_array_tp = placement_array.transpose()
     max_freq_array = np.asarray([[i['freqs'][-1] for i in islands]])
     f_ref_array = np.asarray([[G.graph['ref_freq'] for i in range(n_islands)]])
     f_ratio_array = f_ref_array / max_freq_array
-    capacity_array = np.asarray([[i['capacity'] for i in islands]])
-    wcet_ref_ns_array = np.asarray([[G.nodes[t]['wcet_ref_ns'] for t in range(len(G.nodes))]])
-    wcet_ref_array = np.asarray([[G.nodes[t]['wcet_ref'] for t in range(len(G.nodes))]])
+    print ('freq')
+    # print (max_freq_array)
+    # print (f_ref_array)
+    print (f_ratio_array)
+    print ('wcet')
+    wcet_ref_ns_array = np.asarray([[G.nodes[t]['wcet_ref_ns'] for t in range(len(G.nodes))] for i in range(n_islands)])
+    wcet_ref_array = np.asarray([[G.nodes[t]['wcet_ref'] for t in range(len(G.nodes))] for i in range(n_islands)])
     wcet_delta_array = wcet_ref_array-wcet_ref_ns_array
+
+    print (wcet_ref_ns_array)
+    # print (wcet_ref_array)
+    #print (wcet_delta_array)
+    wcet_delta_placement_array = placement_array * wcet_delta_array
+    wcet_ref_ns_palcement_array = placement_array * wcet_ref_ns_array
+    print (wcet_delta_placement_array)
+
+    print ('capacity')
+    capacity_array = np.asarray([[i['capacity'] for i in islands]])
+    #capacity_array = capacity_array.transpose()
+    #f_ratio_array = f_ratio_array.transpose
+    # print (capacity_array)
+    # print (f_ratio_array)
+    f_ratio_capacity_array = capacity_array * f_ratio_array
+    # print (f_ratio_capacity_array)
+    # print (f_ratio_capacity_array[0,0])
+    #f_ratio_capacity_array = f_ratio_capacity_array.transpose()
+    # repeat the last column by the number of nodes
+    expanded_ratio = np.asarray([[f_ratio_capacity_array[0,i]]*n_nodes for i in range(n_islands)])#.shape((n_islands,n_nodes))
+    #expanded_ratio = expanded_ratio.transpose()
+    print ('expanded_ratio')
+    print (expanded_ratio)
+    print (expanded_ratio.shape)
+    print ('wcet_delta_placement_array')
+    print (wcet_delta_placement_array)
+    print (wcet_delta_placement_array.shape)
+    testing_array2 = wcet_delta_placement_array * expanded_ratio
+    print (testing_array2)
+    wcet_array = wcet_ref_ns_palcement_array + testing_array2
+    print ('wcet_array')
+    print (wcet_array)
+    sys.exit(1)
     capacity_array = capacity_array.transpose()
 
     mult_array = capacity_array * wcet_delta_array
@@ -689,8 +752,16 @@ def check_placement_with_max_freq(placement) -> bool:
     print (wcet)
     pass
 
-# placement = [[9, 8, 7, 6, 4, 3, 2, 0, 1, 5], [], []]
-# check_placement_with_max_freq(placement)
+# n_nodes = len(G.nodes)
+# placement = [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
+# placement_array = np.zeros((n_islands, n_nodes),dtype=int)
+# for i in range(n_islands):
+#     for t in range(n_nodes):
+#         if t in placement[i]:
+#             placement_array[i,t] = 1
+#         else:
+#             placement_array[i,t] = 0
+# check_placement_with_max_freq(placement_array)
 # sys.exit(1)
 
 # The number of combinations of t tasks in i islands
@@ -743,18 +814,22 @@ terminate_counter_names = [
 
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
+# [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
+islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
+islands[1]["placement"] = [4]
+islands[2]["placement"] = [2]
 # islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
 # islands[1]["placement"] = []
 # islands[2]["placement"] = []
-# freqs_per_island_idx = [0,1,0]
-# define_wcet()
+freqs_per_island_idx = [2,2,2]
+define_wcet()
 # feasible = define_rel_deadlines(G)
 # feasible2 = check_utilization()
 # power = define_power()
 # print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-# for t in range(len(G.nodes)):
-#     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
-# sys.exit(1)
+for t in range(len(G.nodes)):
+    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+sys.exit(1)
 
 # best_power = 999999.0
 # best_freq = None
