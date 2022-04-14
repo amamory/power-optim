@@ -682,6 +682,51 @@ def check_utilization() -> bool:
     
     return True
 
+# 2nd implementation of check_utilization() where the task utilization
+# was calculated before hand
+def check_utilization_mat(task_utilization_array) -> bool:
+    # for each island, run the placement heuristic and, if required, the exact solution
+    temp_solution = []
+    first_task = G.graph['first_task']
+    last_task = G.graph['last_task']
+    for idx, i in enumerate(islands):
+        # to keep track of worst_fit heuristic with good data locality
+        utilization_per_pu = [0.0]*i['n_pus']
+        task_placement = [[] for aux in range(i['n_pus'])]
+        # remove the initial and last nodes of the DAG
+        #task_set = [t for t in i['placement'] if t != first_task and t != last_task]
+        # get the task placement on islands by getting the index of task_utilization_array
+        # where the value is > 0.0
+        task_set = np.argwhere(task_utilization_array[idx]>0.0).transpose()[0].tolist()
+        for t in task_set:
+            # get the PUs with minimal utilization
+            pu = utilization_per_pu.index(min(utilization_per_pu))
+            # get the utilization for the current task t
+            # pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
+            #print (t, pu, pu_utilization)
+            pu_utilization = task_utilization_array[idx,t]
+            # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
+            if pu_utilization == 0.0:
+                print ('ERROR: not expecting to reach this point')
+                sys.exit(1)
+            if utilization_per_pu[pu] + pu_utilization > 1.0:
+                # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
+                # TODO find a case where worst-fit does not find a solution but minizinc does
+                task_placement = optimal_placement(i['n_pus'],i['placement'],G)
+                if len(task_placement) == 0:
+                    return False
+                break
+            else:
+                utilization_per_pu[pu] = utilization_per_pu[pu] + pu_utilization
+                task_placement[pu].append(t)
+        temp_solution.append((utilization_per_pu,task_placement))
+    # the solution is copied back to the islands data structure only if the task placement is feasible for all islands
+    for idx, i in enumerate(islands):
+        i['pu_utilization'] = list(temp_solution[idx][0])
+        i['pu_placement'] = list(temp_solution[idx][1])
+    
+    return True
+
 # define_rel_deadlines2(G)
 # print ('NEW RELATIVE DEADLINES:')
 # for n in G.nodes:
@@ -780,8 +825,8 @@ def check_placement_with_max_freq(placement_array) -> bool:
     # divide 2 n_islands x n_nodes float matrices and multiply it by a scalar int
     # path_wcet_array is not actually a n_islands x n_nodes matrix, but this is expanded 
     # automatically to match wcet_array shape
-    rel_deadline_array    = (wcet_float_array / path_wcet_array) * dag_deadline
-    rel_deadline_array = np.floor(rel_deadline_array).astype(int)
+    rel_deadline_float_array    = (wcet_float_array / path_wcet_array) * dag_deadline
+    rel_deadline_array = np.floor(rel_deadline_float_array).astype(int)
     print (rel_deadline_array)
 
     # The following check is equivalent to the following code:
@@ -789,73 +834,61 @@ def check_placement_with_max_freq(placement_array) -> bool:
     #     if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
     # meaning, it performs element wise comparison to check 
     # whether any task relative dealine is less than its wcet
-    if np.less(rel_deadline_array,wcet_array).all():
+    if np.less(rel_deadline_array,wcet_array).any():
         if debug:
             print ('WARNING: at least one task has wcet less than its relative deadline')
             print ('relative deadline:')
             print (rel_deadline_array)
             print ('wcet:')
             print (wcet_array)
-        print ('apssei aqui')
         return False
-    sys.exit(1)
 
     ###########################
-    # 4) check PU utilization constraint
+    # 4) calculate the PU utilization
     ###########################
-    # temp_solution = []
-    # first_task = G.graph['first_task']
-    # last_task = G.graph['last_task']
+    # The following code is equivalent to:
     # for i in islands:
-    #     utilization_per_pu = [0.0]*i['n_pus']
-    #     task_placement = [[] for aux in range(i['n_pus'])]
     #     # remove the initial and last nodes of the DAG
     #     task_set = [t for t in i['placement'] if t != first_task and t != last_task]
     #     for t in task_set:
-    #         # get the PUs with minimal utilization
-    #         pu = utilization_per_pu.index(min(utilization_per_pu))
     #         # get the utilization for the current task t
     #         pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
-    #         #print (t, pu, pu_utilization)
-    #         # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
-    #         if utilization_per_pu[pu] + pu_utilization > 1.0:
-    #             # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
-    #             # TODO find a case where worst-fit does not find a solution but minizinc does
-    #             task_placement = optimal_placement(i['n_pus'],i['placement'],G)
-    #             if len(task_placement) == 0:
-    #                 return False
-    #             break
-    #         else:
-    #             utilization_per_pu[pu] = utilization_per_pu[pu] + pu_utilization
-    #             task_placement[pu].append(t)
-    #     temp_solution.append((utilization_per_pu,task_placement))
-    # # the solution is copied back to the islands data structure only if the task placement is feasible for all islands
-    # for idx, i in enumerate(islands):
-    #     i['pu_utilization'] = list(temp_solution[idx][0])
-    #     i['pu_placement'] = list(temp_solution[idx][1])
+    print ('utilization')
+    # replace all zeros by ones to perform the division
+    rel_deadline_float_array[rel_deadline_float_array == 0.0] = 1.0
+    task_utilization_array = wcet_float_array / rel_deadline_float_array
+    print (task_utilization_array)
 
-    for i in islands:
-        # remove the initial and last nodes of the DAG
-        task_set = [t for t in i['placement'] if t != first_task and t != last_task]
-        for t in task_set:
-            # get the utilization for the current task t
-            pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
-    # run worst-fit
-
-    sys.exit(1)
+    ###########################
+    # 5) check the PU utilization constraint
+    ###########################
+    # 5.1) execute worst-fit task plament on PUs
+    # 5.2) run minizinc when worst-fit fails 
+    return check_utilization_mat(task_utilization_array)
 
 
 np.set_printoptions(precision=2)
 n_nodes = len(G.nodes)
-placement = [[9, 8, 7, 6, 3, 0, 1, 5], [], [2, 4]]
+# the 1st and last nodes are not in this list
+placement = [[8, 7, 6, 3, 1, 5], [], [2, 4]]
 placement_array = np.zeros((n_islands, n_nodes),dtype=int)
 for i in range(n_islands):
-    for t in range(n_nodes):
+    # exclude the 1st and last nodes
+    task_set = [t for t in G.nodes if t != first_task and t != last_task]
+    for t in task_set:
         if t in placement[i]:
             placement_array[i,t] = 1
         else:
             placement_array[i,t] = 0
-check_placement_with_max_freq(placement_array)
+feasible = check_placement_with_max_freq(placement_array)
+print (feasible)
+print ('wcet - rel_deadline')
+for t in range(len(G.nodes)):
+    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+for i in islands:
+    print ('pu utilization:',i['pu_utilization'])
+    print ('pu placement',i['pu_placement'])
+
 sys.exit(1)
 
 # The number of combinations of t tasks in i islands
