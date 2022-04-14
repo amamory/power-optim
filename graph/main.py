@@ -842,6 +842,11 @@ def check_placement_with_max_freq(placement_array) -> bool:
             print ('wcet:')
             print (wcet_array)
         return False
+    # transfer the rel_deadline to the nodes
+    for idx, row in enumerate(rel_deadline_array):
+        task_set = np.argwhere(row>0.0).transpose()[0].tolist()
+        for t in task_set: 
+            G.nodes[t]["rel_deadline"] = rel_deadline_array[idx,t]
 
     ###########################
     # 4) calculate the PU utilization
