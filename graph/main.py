@@ -578,7 +578,7 @@ def define_rel_deadlines(G) -> bool:
     if not path_wcet_list:
         # an empty list, which means dag deadline is not feasible
         return False
-
+    #print (path_wcet_list)
     ############################
     # 2) assign deadline to all nodes proportionally to its wcet and path wcet
     ############################
@@ -770,7 +770,35 @@ def check_placement_with_max_freq(placement_array) -> bool:
     # for n in task_set:
     #     if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
     #         return False
+    print ('rel_deadline')
+    dag_deadline = G.graph['deadline']
+    # get the longest path related to each node
+    # TODO replace it by Tommaso's function
+    path_wcet_array = np.asarray([19, 17, 19, 15, 19, 17, 19, 19, 19, 1])
+    path_wcet_array = path_wcet_array.astype(float)
+    wcet_float_array = wcet_array.astype(float)
+    # divide 2 n_islands x n_nodes float matrices and multiply it by a scalar int
+    # path_wcet_array is not actually a n_islands x n_nodes matrix, but this is expanded 
+    # automatically to match wcet_array shape
+    rel_deadline_array    = (wcet_float_array / path_wcet_array) * dag_deadline
+    rel_deadline_array = np.floor(rel_deadline_array).astype(int)
+    print (rel_deadline_array)
 
+    # The following check is equivalent to the following code:
+    # for n in task_set:
+    #     if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
+    # meaning, it performs element wise comparison to check 
+    # whether any task relative dealine is less than its wcet
+    if np.less(rel_deadline_array,wcet_array).all():
+        if debug:
+            print ('WARNING: at least one task has wcet less than its relative deadline')
+            print ('relative deadline:')
+            print (rel_deadline_array)
+            print ('wcet:')
+            print (wcet_array)
+        print ('apssei aqui')
+        return False
+    sys.exit(1)
 
     ###########################
     # 4) check PU utilization constraint
@@ -817,18 +845,18 @@ def check_placement_with_max_freq(placement_array) -> bool:
     sys.exit(1)
 
 
-# np.set_printoptions(precision=2)
-# n_nodes = len(G.nodes)
-# placement = [[9, 8, 7, 6,  0, 1, 5], [], [2, 3, 4]]
-# placement_array = np.zeros((n_islands, n_nodes),dtype=int)
-# for i in range(n_islands):
-#     for t in range(n_nodes):
-#         if t in placement[i]:
-#             placement_array[i,t] = 1
-#         else:
-#             placement_array[i,t] = 0
-# check_placement_with_max_freq(placement_array)
-# sys.exit(1)
+np.set_printoptions(precision=2)
+n_nodes = len(G.nodes)
+placement = [[9, 8, 7, 6, 3, 0, 1, 5], [], [2, 4]]
+placement_array = np.zeros((n_islands, n_nodes),dtype=int)
+for i in range(n_islands):
+    for t in range(n_nodes):
+        if t in placement[i]:
+            placement_array[i,t] = 1
+        else:
+            placement_array[i,t] = 0
+check_placement_with_max_freq(placement_array)
+sys.exit(1)
 
 # The number of combinations of t tasks in i islands
 # is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
@@ -881,21 +909,21 @@ terminate_counter_names = [
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
 # [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
-# islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
-# islands[1]["placement"] = []
-# islands[2]["placement"] = [2, 4]
+islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
+islands[1]["placement"] = []
+islands[2]["placement"] = [2, 4]
 # islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
 # islands[1]["placement"] = []
 # islands[2]["placement"] = []
-# freqs_per_island_idx = [2,2,2]
-# define_wcet()
-# feasible = define_rel_deadlines(G)
+freqs_per_island_idx = [2,2,2]
+define_wcet()
+feasible = define_rel_deadlines(G)
 # feasible2 = check_utilization()
 # power = define_power()
 # print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-# for t in range(len(G.nodes)):
-#     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
-# sys.exit(1)
+for t in range(len(G.nodes)):
+    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+sys.exit(1)
 
 # best_power = 999999.0
 # best_freq = None
