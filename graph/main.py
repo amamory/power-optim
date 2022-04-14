@@ -404,25 +404,20 @@ def define_rel_deadlines2(G) -> bool:
 
     return True
 
-# assign relative deadline to each node
-# TODO not scalable code with compexity O(n!)
-# return false if the deadline is not feasible
-# TODO it's also very inneficient because this is calculated for every frequency for every placement.
-# the critical path and the relative deadlines could be pre-processed only once at startup
-def define_rel_deadlines(G) -> bool:
+# assign path wcet to each node
+# TODO the underlaying algorithm is graph-related search
+# which is not scalable code with compexity O(n!)
+# return the list of path wcet for each node. return an empty list if 
+# the dag deadline is not feasible
+def define_path_wcet(H) -> list():
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
     # 2) get all paths to each end node
     # 3) for each node, assign its max path wcet
-    # 4) assign deadline to all nodes proportionally to its wcet and path wcet
-    # 5) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
-    # 6) transfer the relative deadline back to the original DAG
 
     ####################
     # 1) convert node weight into edge weight to find longest paths
     ####################
-    # deep copy the DAG
-    H = G.copy()
 
     H.nodes[H.graph['first_task']]["wcet"] = 0
     H.nodes[H.graph['last_task']]["wcet"] = 0
@@ -442,7 +437,7 @@ def define_rel_deadlines(G) -> bool:
                 print (t, H.nodes[t]["wcet"])
         temp_tuple = (terminate_counters[0][0]+1,terminate_counters[0][1]+elapsed_time)
         terminate_counters[0] = temp_tuple
-        return False
+        return []
 
     # assign the edge weight as the sum of the node weights
     for u, v, data in H.edges(data=True):
@@ -480,7 +475,7 @@ def define_rel_deadlines(G) -> bool:
             print ('WARNING: critical path', critical_path,'has lenght', wcet_critical_path, 'which is longer than then DAG deadline', dag_deadline)
         temp_tuple = (terminate_counters[1][0]+1,terminate_counters[1][1]+elapsed_time)
         terminate_counters[1] = temp_tuple            
-        return False
+        return []
 
     ####################
     # 2) get all paths to each end node
@@ -541,7 +536,7 @@ def define_rel_deadlines(G) -> bool:
             #print ('CRITICAL PATH:')
             #print (wcet_critical_path, critical_path, [H.nodes[n1]["wcet"] for n1 in critical_path])    
             #sys.exit(1)            
-            return False
+            return []
         # save the longest of all paths
         if max_partial_path[0] > critical_path2[0]:
             critical_path2 = max_partial_path
@@ -556,37 +551,69 @@ def define_rel_deadlines(G) -> bool:
     if critical_path2[0] > dag_deadline:
         # not expecting to reach this point unless there is a bug above
         print ('ERROR: critical path', critical_path2[1], 'takes', critical_path2[0],', longer than DAG deadline', dag_deadline)
+        return []
+
+    return path_wcet_list
+
+# assign relative deadline to each node
+# TODO it's also very inneficient because this is calculated for every frequency for every placement.
+# the critical path and the relative deadlines could be pre-processed only once at startup
+def define_rel_deadlines(G) -> bool:
+    # main steps:   
+    # 1) assign path wcet to each node - compexity O(n!)
+    # 2) assign deadline to all nodes proportionally to its wcet and path wcet
+    # 3) (DISABLED STEP) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
+    # 4) transfer the relative deadline back to the original DAG
+
+    # deep copy the DAG
+    H = G.copy()
+
+    # some basic definitions
+    dag_deadline = H.graph['deadline']
+
+    ############################
+    # 1) assign path wcet to each node
+    ############################
+    path_wcet_list = define_path_wcet(H)
+    if not path_wcet_list:
+        # an empty list, which means dag deadline is not feasible
         return False
 
     ############################
-    # 4) assign deadline to all nodes proportionally to its wcet and path wcet
+    # 2) assign deadline to all nodes proportionally to its wcet and path wcet
     ############################
+    # remove the initial and last nodes of the DAG
+    task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
     for n in task_set:
         wcet_ratio = float(H.nodes[n]["wcet"])/float(path_wcet_list[n])
         # assign rel_deadline proportional to its wcet
         H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
 
-    ############################
-    # 5) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
-    ############################
-    # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
-    # by trying to increase the relative deadline of the last nodes.
-    for paths in paths_from_last_nodes:
-        # the last node index
-        node = paths[0][-1]
-        rel_deadline_sum = []
-        # sum the deadlines for all paths leading to node
-        for p in paths:
-            # save the sum the deadlines for path p
-            rel_deadline_sum.append(sum([H.nodes[n1]["rel_deadline"] for n1 in p]))
-        # get the path with the longest sum of rel_deadline
-        max_rel_deadline_sum = max(rel_deadline_sum)
-        if (max_rel_deadline_sum > dag_deadline):
-            # not expecting to reach this point unless there is a bug above
-            print ('ERROR: not expecting to have longer deadlines at this point. Path sum is',max_rel_deadline_sum)
-            sys.exit(1)
-        # assign any reamaning slack to its last node
-        H.nodes[node]["rel_deadline"] = H.nodes[node]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
+    # although this idea of increasing the deadline is valid, 
+    # the benefit is low compared to the computational cost of computing 
+    # all paths. Thus, for now this is disabled
+    if False:
+        ############################
+        # 3) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
+        ############################
+        # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
+        # by trying to increase the relative deadline of the last nodes.
+        for paths in paths_from_last_nodes:
+            # the last node index
+            node = paths[0][-1]
+            rel_deadline_sum = []
+            # sum the deadlines for all paths leading to node
+            for p in paths:
+                # save the sum the deadlines for path p
+                rel_deadline_sum.append(sum([H.nodes[n1]["rel_deadline"] for n1 in p]))
+            # get the path with the longest sum of rel_deadline
+            max_rel_deadline_sum = max(rel_deadline_sum)
+            if (max_rel_deadline_sum > dag_deadline):
+                # not expecting to reach this point unless there is a bug above
+                print ('ERROR: not expecting to have longer deadlines at this point. Path sum is',max_rel_deadline_sum)
+                sys.exit(1)
+            # assign any reamaning slack to its last node
+            H.nodes[node]["rel_deadline"] = H.nodes[node]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
 
     # the relative deadline of a task cannot be lower than its wcet
     for n in task_set:
@@ -598,7 +625,7 @@ def define_rel_deadlines(G) -> bool:
             return False
 
     ############################
-    # 6) transfer the relative deadline back to the original DAG
+    # 4) transfer the relative deadline back to the original DAG
     ############################
     for n in H.nodes:
         G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
@@ -634,7 +661,7 @@ def check_utilization() -> bool:
             # get the PUs with minimal utilization
             pu = utilization_per_pu.index(min(utilization_per_pu))
             # get the utilization for the current task t
-            pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))        
+            pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
             #print (t, pu, pu_utilization)
             # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
             if utilization_per_pu[pu] + pu_utilization > 1.0:
@@ -730,21 +757,78 @@ def check_placement_with_max_freq(placement_array) -> bool:
     wcet_array = np.ceil(wcet_array).astype(int)
     print ('wcet')
     print (wcet_array)
+
+    ###########################
+    # 3) calculate relative deadline for each task
+    ###########################
+    # The following code is equivalent to this procedural code one:
+    # remove the initial and last nodes of the DAG
+    # task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
+    # for n in task_set:
+    #     wcet_ratio = float(H.nodes[n]["wcet"])/float(path_wcet_list[n])
+    #     H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
+    # for n in task_set:
+    #     if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
+    #         return False
+
+
+    ###########################
+    # 4) check PU utilization constraint
+    ###########################
+    # temp_solution = []
+    # first_task = G.graph['first_task']
+    # last_task = G.graph['last_task']
+    # for i in islands:
+    #     utilization_per_pu = [0.0]*i['n_pus']
+    #     task_placement = [[] for aux in range(i['n_pus'])]
+    #     # remove the initial and last nodes of the DAG
+    #     task_set = [t for t in i['placement'] if t != first_task and t != last_task]
+    #     for t in task_set:
+    #         # get the PUs with minimal utilization
+    #         pu = utilization_per_pu.index(min(utilization_per_pu))
+    #         # get the utilization for the current task t
+    #         pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
+    #         #print (t, pu, pu_utilization)
+    #         # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
+    #         if utilization_per_pu[pu] + pu_utilization > 1.0:
+    #             # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
+    #             # TODO find a case where worst-fit does not find a solution but minizinc does
+    #             task_placement = optimal_placement(i['n_pus'],i['placement'],G)
+    #             if len(task_placement) == 0:
+    #                 return False
+    #             break
+    #         else:
+    #             utilization_per_pu[pu] = utilization_per_pu[pu] + pu_utilization
+    #             task_placement[pu].append(t)
+    #     temp_solution.append((utilization_per_pu,task_placement))
+    # # the solution is copied back to the islands data structure only if the task placement is feasible for all islands
+    # for idx, i in enumerate(islands):
+    #     i['pu_utilization'] = list(temp_solution[idx][0])
+    #     i['pu_placement'] = list(temp_solution[idx][1])
+
+    for i in islands:
+        # remove the initial and last nodes of the DAG
+        task_set = [t for t in i['placement'] if t != first_task and t != last_task]
+        for t in task_set:
+            # get the utilization for the current task t
+            pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
+    # run worst-fit
+
     sys.exit(1)
 
 
-np.set_printoptions(precision=2)
-n_nodes = len(G.nodes)
-placement = [[9, 8, 7, 6,  0, 1, 5], [], [2, 3, 4]]
-placement_array = np.zeros((n_islands, n_nodes),dtype=int)
-for i in range(n_islands):
-    for t in range(n_nodes):
-        if t in placement[i]:
-            placement_array[i,t] = 1
-        else:
-            placement_array[i,t] = 0
-check_placement_with_max_freq(placement_array)
-sys.exit(1)
+# np.set_printoptions(precision=2)
+# n_nodes = len(G.nodes)
+# placement = [[9, 8, 7, 6,  0, 1, 5], [], [2, 3, 4]]
+# placement_array = np.zeros((n_islands, n_nodes),dtype=int)
+# for i in range(n_islands):
+#     for t in range(n_nodes):
+#         if t in placement[i]:
+#             placement_array[i,t] = 1
+#         else:
+#             placement_array[i,t] = 0
+# check_placement_with_max_freq(placement_array)
+# sys.exit(1)
 
 # The number of combinations of t tasks in i islands
 # is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
@@ -797,21 +881,21 @@ terminate_counter_names = [
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
 # [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
-islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
-islands[1]["placement"] = []
-islands[2]["placement"] = [2, 4]
+# islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
+# islands[1]["placement"] = []
+# islands[2]["placement"] = [2, 4]
 # islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
 # islands[1]["placement"] = []
 # islands[2]["placement"] = []
-freqs_per_island_idx = [2,2,2]
-define_wcet()
+# freqs_per_island_idx = [2,2,2]
+# define_wcet()
 # feasible = define_rel_deadlines(G)
 # feasible2 = check_utilization()
 # power = define_power()
 # print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-for t in range(len(G.nodes)):
-    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
-sys.exit(1)
+# for t in range(len(G.nodes)):
+#     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+# sys.exit(1)
 
 # best_power = 999999.0
 # best_freq = None
