@@ -1,5 +1,6 @@
 import sys
 import os
+import subprocess
 import networkx as nx
 import pandas as pd
 import numpy as np
@@ -145,9 +146,8 @@ freqs_per_island_idx = [0]* n_islands
 debug = False
 
 # used to account the DAG precedence constraint into PU utilization calculation
+# the first and last nodes are excluded
 unrelated = [
-    [ 0 ], 
-    [ 9 ], 
     [ 6, 7, 8 ], 
     [ 3, 6 ], 
     [ 5, 6, 8 ], 
@@ -591,7 +591,9 @@ def define_rel_deadlines(G) -> bool:
 
     # although this idea of increasing the deadline is valid, 
     # the benefit is low compared to the computational cost of computing 
-    # all paths. Thus, for now this is disabled
+    # all paths. On the other hand, this trick is able to reduce the utilization 
+    # a little bit, which might increase the number of 'potential solutions'
+    # Thus, for now this is disabled
     if False:
         ############################
         # 3) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
@@ -632,14 +634,141 @@ def define_rel_deadlines(G) -> bool:
 
     return True
 
+# Generates the datafile required to run the function 'optimal_placement'
+# The generated model is such that all nodes are included into the model 
+# instead of only the ones assigned to the island. This way, it's easier 
+# to check the precedence constraints. However, the utilization is zero
+# when the task is not mapped to the target island.
+def create_minizinc_datafile(i, placement, freq_seq, filename):
+
+    def unrelated_line(f, line_start, n, unrel_row):
+        f.write(line_start)
+        for i in range(n):
+            if i < len(unrel_row):
+                f.write(str(unrel_row[i]+1))
+            else:
+                f.write("1")
+            if i < n-1:
+                f.write(",")
+        f.write("\n")
+
+    #generate the filename and open the file
+    f = None
+    try:
+        f = open(filename,"w")
+    except IOError:
+        print ("ERROR: could not generate file", filename)
+        sys.exit(1)
+    
+    f.write("%% The problem instance:\n")
+    f.write("%%   island = %d\n" % (i))
+    f.write("%%   placement = %s\n" % (str(placement)))
+    f.write("%%   freq_seq = %s\n\n" % (str(freq_seq)))
+    f.write("N_CORES = %d;\n" % (islands[i]['n_pus']))
+    # All nodes are included into the model instead of only the ones assigned to the island.
+    # This way, it's easier to check the precedence constraints
+    f.write("N_NODES = %d;\n" % (len(G.nodes)))
+    f.write("N_EDGES = %d;\n\n" % (len(G.edges)))
+
+    f.write("N_UNREL_ROWS = %d;\n" % (len(unrelated)))
+    max_unrel_size = max([len(i) for i in unrelated])
+    f.write("N_UNREL_COLS = %d;\n\n" % (max_unrel_size))
+
+    f.write("% the dag deadline\n")
+    f.write("Ddag = %d;\n\n" % (G.graph['deadline']))
+
+    # gather the task-related data to fill these minizinc arrays
+    wcet = []
+    rel_deadline = []
+    task_utilization = []
+    for n in range(len(G.nodes)):
+        wcet.append(G.nodes[n]['wcet'])
+        rel_deadline.append(G.nodes[n]['rel_deadline'])
+        util = 0.0
+        # if the node n is not in the task set to be placed in this island,
+        # then utilization is 0, i.e., it wont be taken into account when 
+        # cheking the pu utilization
+        if n in placement[i]:
+            if G.nodes[n]['rel_deadline'] != 0:
+                util = float(G.nodes[n]['wcet'])/float(G.nodes[n]['rel_deadline'])
+        task_utilization.append(round(util,4))
+
+    f.write("% wcet for each task\n")
+    f.write("T = %s;\n\n" % (str(wcet)))
+
+    f.write("% relative deadline to each task\n")
+    f.write("D = %s;\n\n" % (rel_deadline))
+
+    f.write("% utilization required by task: T[i]/D[i]\n")
+    f.write("U = %s;\n\n" % (task_utilization))
+
+    f.write("% non related nodes, i.e., nodes that could be executed concurrently\n")
+    f.write("unrelated_node = \n")
+    # the 1st line
+    unrelated_line(f,"   [| ",max_unrel_size,unrelated[0])
+    # the middle lines
+    for row in unrelated[1:]:
+        unrelated_line(f,"    | ",max_unrel_size,row)
+    # the last line
+    f.write("    |];\n\n")
+
+    f.write("% from: the leaving node for each edge\n")
+    f.write("% to: the entering node for each edge\n")
+    f.write("% list of edges indicating which nodes are connected\n")
+    f.write("E =  \n")
+    idx = 0
+    for n1, n2 in G.edges():
+        if idx == 0:
+            f.write("   [")
+        else:
+            f.write("    ")
+        f.write("| "+str(n1+1)+","+str(n2+1)+"\n")
+        idx = idx = 1
+    # the last line
+    f.write("    |];\n")
+
+    f.close()
+
 # Optimal solution to the place a task set onto PUs.
 # It returns am empty list if it is indeed impossible to place the task set without breaking the utilization constraint.
 # Otherwise, it returns the optimal task placement.
-# TODO call minizinc and run Constraint Programming.
-def optimal_placement(n_pus,task_set,graph) -> list:
+# TODO capture the output of minizinc
+# def optimal_placement(n_pus,task_set,graph) -> list:
+def optimal_placement(i, freq_seq) -> list:
     # create the minizinc dzn file
     # run minizinc
     # capture the task placement, if this is feasible
+
+    placement = [i['placement'] for i in islands]
+    # data_filename  = str(placement)+"-"+str(freq_seq)+".dnz"
+    # data_filename  = data_filename.replace(" ", "")
+    data_filename = 'data_gen.dzn'
+
+    create_minizinc_datafile(i, placement, freq_seq, data_filename)
+
+    print ("Running minizinc:", data_filename)
+    proc_minizinc = None
+    try:
+        proc_minizinc = subprocess.Popen(["minizinc", 
+            "model.mzn", 
+            data_filename],stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE )
+    except subprocess.CalledProcessError as e:
+        print(e.output)
+        print ("ERROR: could not call minizinc. Perhaps it is not installed ?!?!")
+        print ("Error running 'minizinc model.mzn %s'" % data_filename)
+        sys.exit(1)
+
+    # # waste some time until checking the server if fully up
+    # time.sleep(5)
+    # print ("Done!")
+
+    # test is the process is still up. If not, then it must be an error
+    # if proc_minizinc.poll() != None:
+    #     print("ERROR: py4j_server ended too soon. ret code:", proc_minizinc.returncode)
+    #     print ("Error running 'minizinc model.mzn %s'" % data_filename)
+    #     sys.exit(1)
+
     return []
 
 # It initially performs a worst_fit greedy approach to place the tasks of an island onto PUs.
@@ -667,7 +796,8 @@ def check_utilization() -> bool:
             if utilization_per_pu[pu] + pu_utilization > 1.0:
                 # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
                 # TODO find a case where worst-fit does not find a solution but minizinc does
-                task_placement = optimal_placement(i['n_pus'],i['placement'],G)
+                # task_placement = optimal_placement(i['n_pus'],i['placement'],G)
+                task_placement = []
                 if len(task_placement) == 0:
                     return False
                 break
@@ -712,7 +842,8 @@ def check_utilization_mat(task_utilization_array) -> bool:
             if utilization_per_pu[pu] + pu_utilization > 1.0:
                 # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
                 # TODO find a case where worst-fit does not find a solution but minizinc does
-                task_placement = optimal_placement(i['n_pus'],i['placement'],G)
+                # task_placement = optimal_placement(i['n_pus'],i['placement'],G)
+                task_placement = []
                 if len(task_placement) == 0:
                     return False
                 break
@@ -876,29 +1007,29 @@ def check_placement_with_max_freq(placement_array) -> bool:
     return check_utilization_mat(task_utilization_array)
 
 
-np.set_printoptions(precision=2)
-n_nodes = len(G.nodes)
-# the 1st and last nodes are not in this list
-placement = [[8, 7, 6, 3, 1, 5], [], [2, 4]]
-placement_array = np.zeros((n_islands, n_nodes),dtype=int)
-for i in range(n_islands):
-    # exclude the 1st and last nodes
-    task_set = [t for t in G.nodes if t != first_task and t != last_task]
-    for t in task_set:
-        if t in placement[i]:
-            placement_array[i,t] = 1
-        else:
-            placement_array[i,t] = 0
-feasible = check_placement_with_max_freq(placement_array)
-print (feasible)
-print ('wcet - rel_deadline')
-for t in range(len(G.nodes)):
-    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
-for i in islands:
-    print ('pu utilization:',i['pu_utilization'])
-    print ('pu placement',i['pu_placement'])
+# np.set_printoptions(precision=2)
+# n_nodes = len(G.nodes)
+# # the 1st and last nodes are not in this list
+# placement = [[8, 7, 6, 3, 1, 5], [], [2, 4]]
+# placement_array = np.zeros((n_islands, n_nodes),dtype=int)
+# for i in range(n_islands):
+#     # exclude the 1st and last nodes
+#     task_set = [t for t in G.nodes if t != first_task and t != last_task]
+#     for t in task_set:
+#         if t in placement[i]:
+#             placement_array[i,t] = 1
+#         else:
+#             placement_array[i,t] = 0
+# feasible = check_placement_with_max_freq(placement_array)
+# print (feasible)
+# print ('wcet - rel_deadline')
+# for t in range(len(G.nodes)):
+#     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+# for i in islands:
+#     print ('pu utilization:',i['pu_utilization'])
+#     print ('pu placement',i['pu_placement'])
 
-sys.exit(1)
+# sys.exit(1)
 
 # The number of combinations of t tasks in i islands
 # is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
@@ -951,20 +1082,26 @@ terminate_counter_names = [
 # for i in range(n_islands):
 #    islands[i]["placement"] = leaf_list[0].islands[i]
 # [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
-islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
-islands[1]["placement"] = []
-islands[2]["placement"] = [2, 4]
-# islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
+# islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
 # islands[1]["placement"] = []
-# islands[2]["placement"] = []
-freqs_per_island_idx = [2,2,2]
+# islands[2]["placement"] = [2, 4]
+islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
+islands[1]["placement"] = []
+islands[2]["placement"] = []
+# freqs_per_island_idx = [2,2,2]
+freqs_per_island_idx = [0,1,0]
 define_wcet()
 feasible = define_rel_deadlines(G)
-# feasible2 = check_utilization()
-# power = define_power()
-# print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+feasible2 = check_utilization()
+power = define_power()
+print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
 for t in range(len(G.nodes)):
     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+# for i in islands:
+#     print ('pu utilization:',i['pu_utilization'])
+#     print ('pu placement',i['pu_placement'])
+# create_minizinc_datafile(0,freqs_per_island_idx)
+optimal_placement(0,freqs_per_island_idx)
 sys.exit(1)
 
 # best_power = 999999.0

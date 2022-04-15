@@ -1,5 +1,5 @@
 % The set of nodes (NODE) with  predence constraints modeled as a DAG,
-% (note: execpt for the first and the last nodes, the other nodes represents tasks)
+% (note: except for the first and the last nodes, the other nodes represents tasks)
 % must be schedule on any of hw processing units (PU) represented by set CORE|.
 % The tasks have a duration (T). 
 
