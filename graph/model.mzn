@@ -16,6 +16,8 @@
 int : N_NODES;
 int : N_EDGES;
 int : N_CORES;
+int : N_UNREL_ROWS;
+int : N_UNREL_COLS;
 int : Ddag;
 enum NODE = anon_enum(N_NODES);
 enum EDGE = anon_enum(N_EDGES);
@@ -25,7 +27,7 @@ array [NODE] of int: T;                   % task wcet
 array [1..N_NODES] of float: U;                 % CPU utilization per task
 array [1..N_EDGES,1..2] of 1..N_NODES: E;      % the DAG edges: source node to target node
 
-array [1..7,1..3] of 1..N_NODES: unrelated_node;
+array [1..N_UNREL_ROWS,1..N_UNREL_COLS] of 1..N_NODES: unrelated_node;
 
 % BOUNDS FOR MAKESPAN 
 % UPPER BOUND: since a job runs on a single workstation, lets be pessimistic and assume that the longest duration will be chosen for each pair job/core
@@ -61,8 +63,8 @@ constraint forall(i in NODE)(
 %     );
 
 constraint %% check utilization constraint for the set of unrelated tasks that can run concurrently
-    max(u in 1..7)(
-        sum(t in 1..3)(U[unrelated_node[u,t]])
+    max(u in 1..N_UNREL_ROWS)(
+        sum(t in 1..N_UNREL_COLS)(U[unrelated_node[u,t]])
     ) <= 1.0;
 
 constraint %% main constraint to check the DAG deadline

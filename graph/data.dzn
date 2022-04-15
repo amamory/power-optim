@@ -14,6 +14,9 @@ N_CORES = 2;
 N_NODES = 10;
 N_EDGES = 15;
 
+N_UNREL_ROWS = 7;
+N_UNREL_COLS = 3;
+
 % the dag deadline
 Ddag = 100;
 
