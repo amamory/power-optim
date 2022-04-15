@@ -11,7 +11,7 @@
 % unfeasible, or it is a limitation of the worst-fit heuristics.
 
 N_CORES = 2;
-N_TASKS = 10;
+N_NODES = 10;
 N_EDGES = 15;
 
 % the dag deadline
@@ -25,6 +25,15 @@ D = [0,33,33,44,33,27,34,29,34,0];
 
 % cpu utilization per task: T[i]/D[i]
 U = [0.0, 0.3030, 0.3030, 0.3636, 0.3030, 0.3704, 0.2941, 0.3448, 0.2941, 0.0];
+
+% non related nodes, i.e., nodes that could be executed concurrently
+unrelated_node =   [| 7, 8, 9  
+                    | 4, 7, 1  
+                    | 6, 7, 9  
+                    | 2, 6, 1  
+                    | 5, 6, 1  
+                    | 2, 3, 4  
+                    | 4, 5, 1 |];
 
 % from: the leaving node for each edge
 % to: the entering node for each edge
