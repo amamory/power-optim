@@ -730,11 +730,9 @@ def create_minizinc_datafile(i, placement, freq_seq, filename):
     f.close()
 
 # Optimal solution to the place a task set onto PUs.
-# It returns am empty list if it is indeed impossible to place the task set without breaking the utilization constraint.
-# Otherwise, it returns the optimal task placement.
-# TODO capture the output of minizinc
-# def optimal_placement(n_pus,task_set,graph) -> list:
-def optimal_placement(i, freq_seq) -> list:
+# It returns true if the task placement is feasible.
+# TODO capture the placement output of minizinc
+def optimal_placement(i, freq_seq) -> bool:
     # create the minizinc dzn file
     # run minizinc
     # capture the task placement, if this is feasible
@@ -746,7 +744,7 @@ def optimal_placement(i, freq_seq) -> list:
 
     create_minizinc_datafile(i, placement, freq_seq, data_filename)
 
-    print ("Running minizinc:", data_filename)
+    # print ("Running minizinc:", data_filename)
     proc_minizinc = None
     try:
         proc_minizinc = subprocess.Popen(["minizinc", 
@@ -759,17 +757,19 @@ def optimal_placement(i, freq_seq) -> list:
         print ("Error running 'minizinc model.mzn %s'" % data_filename)
         sys.exit(1)
 
-    # # waste some time until checking the server if fully up
-    # time.sleep(5)
-    # print ("Done!")
-
-    # test is the process is still up. If not, then it must be an error
-    # if proc_minizinc.poll() != None:
-    #     print("ERROR: py4j_server ended too soon. ret code:", proc_minizinc.returncode)
-    #     print ("Error running 'minizinc model.mzn %s'" % data_filename)
-    #     sys.exit(1)
-
-    return []
+    # CONVERT THE MINIZINC OUTPUT INTO JSON 
+    # the minizinc output is a list of bytes
+    minizinc_stdout_bytes = proc_minizinc.stdout.readlines()
+    # this will convert a list of bytes into a single string
+    minizinc_stdout_str=b''.join(minizinc_stdout_bytes).decode('utf-8')
+    if "UNSATISFIABLE" in minizinc_stdout_str:
+        # print ('MINIZINC: False')
+        # print (placement, freq_seq)
+        return False
+    else:
+        # print ('MINIZINC: True')
+        # print (minizinc_stdout_str)
+        return True
 
 # It initially performs a worst_fit greedy approach to place the tasks of an island onto PUs.
 # If the heuristic says that it is not possible to place the tasks, then it runs an exact optimal
@@ -780,7 +780,7 @@ def check_utilization() -> bool:
     temp_solution = []
     first_task = G.graph['first_task']
     last_task = G.graph['last_task']
-    for i in islands:
+    for idx, i in enumerate(islands):
         # to keep track of worst_fit heuristic with good data locality
         utilization_per_pu = [0.0]*i['n_pus']
         task_placement = [[] for aux in range(i['n_pus'])]
@@ -795,12 +795,11 @@ def check_utilization() -> bool:
             # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
             if utilization_per_pu[pu] + pu_utilization > 1.0:
                 # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
-                # TODO find a case where worst-fit does not find a solution but minizinc does
-                # task_placement = optimal_placement(i['n_pus'],i['placement'],G)
-                task_placement = []
-                if len(task_placement) == 0:
-                    return False
-                break
+                return optimal_placement(idx,freqs_per_island_idx)
+                # task_placement = []
+                # if len(task_placement) == 0:
+                #     return False
+                # break
             else:
                 utilization_per_pu[pu] = utilization_per_pu[pu] + pu_utilization
                 task_placement[pu].append(t)
@@ -841,12 +840,11 @@ def check_utilization_mat(task_utilization_array) -> bool:
                 sys.exit(1)
             if utilization_per_pu[pu] + pu_utilization > 1.0:
                 # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
-                # TODO find a case where worst-fit does not find a solution but minizinc does
-                # task_placement = optimal_placement(i['n_pus'],i['placement'],G)
-                task_placement = []
-                if len(task_placement) == 0:
-                    return False
-                break
+                return optimal_placement(idx,freqs_per_island_idx)
+                # task_placement = []
+                # if len(task_placement) == 0:
+                #     return False
+                # break
             else:
                 utilization_per_pu[pu] = utilization_per_pu[pu] + pu_utilization
                 task_placement[pu].append(t)
@@ -1085,27 +1083,30 @@ terminate_counter_names = [
 # islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
 # islands[1]["placement"] = []
 # islands[2]["placement"] = [2, 4]
-islands[0]["placement"] = [9, 8, 7, 6, 4, 3, 2, 0, 1, 5]
-islands[1]["placement"] = []
-islands[2]["placement"] = []
+# islands[0]["placement"] = [9, 8, 7,  3, 2, 0, 1, 5]
+# islands[1]["placement"] = []
+# islands[2]["placement"] = [6, 4]
 # freqs_per_island_idx = [2,2,2]
-freqs_per_island_idx = [0,1,0]
-define_wcet()
-feasible = define_rel_deadlines(G)
-feasible2 = check_utilization()
-power = define_power()
-print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-for t in range(len(G.nodes)):
-    print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
+# freqs_per_island_idx = [0,1,0]
+# define_wcet()
+# feasible = define_rel_deadlines(G)
+# feasible2 = check_utilization()
+# power = define_power()
+# print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
+# for t in range(len(G.nodes)):
+#     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
 # for i in islands:
 #     print ('pu utilization:',i['pu_utilization'])
 #     print ('pu placement',i['pu_placement'])
 # create_minizinc_datafile(0,freqs_per_island_idx)
-optimal_placement(0,freqs_per_island_idx)
-sys.exit(1)
+# optimal_placement(0,freqs_per_island_idx)
+# sys.exit(1)
 
 # best_power = 999999.0
 # best_freq = None
+# islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
+# islands[1]["placement"] = []
+# islands[2]["placement"] = [2, 4]
 # for i in range(len(freq_seq)):
 #    freqs_per_island_idx = freq_seq[i]
 #    define_wcet()
@@ -1144,7 +1145,7 @@ for l in leaf_list:
     # the search skip to the next task placement combination
     if l_idx%100 == 0:
         print ('Checking solution',l_idx, 'out of',search_space_size, 'possible mappings')
-    if l_idx >500:
+    if l_idx >100:
         break
     # for f in range(len(freq_seq)):
     keep_evaluating_freq_seq = True
