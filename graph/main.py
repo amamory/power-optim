@@ -558,6 +558,7 @@ def define_path_wcet(H) -> list():
 # assign relative deadline to each node
 # TODO it's also very inneficient because this is calculated for every frequency for every placement.
 # the critical path and the relative deadlines could be pre-processed only once at startup
+# TODO replace it by Tommaso's function
 def define_rel_deadlines(G) -> bool:
     # main steps:   
     # 1) assign path wcet to each node - compexity O(n!)
@@ -729,6 +730,7 @@ def create_minizinc_datafile(i, placement, freq_seq, filename):
 
     f.close()
 
+minizinc_cnt = 0
 # Optimal solution to the place a task set onto PUs.
 # It returns true if the task placement is feasible.
 # TODO capture the placement output of minizinc
@@ -736,6 +738,9 @@ def optimal_placement(i, freq_seq) -> bool:
     # create the minizinc dzn file
     # run minizinc
     # capture the task placement, if this is feasible
+    #return False
+    global minizinc_cnt
+    minizinc_cnt = minizinc_cnt +1
 
     placement = [i['placement'] for i in islands]
     # data_filename  = str(placement)+"-"+str(freq_seq)+".dnz"
@@ -816,8 +821,8 @@ def check_utilization() -> bool:
 def check_utilization_mat(task_utilization_array) -> bool:
     # for each island, run the placement heuristic and, if required, the exact solution
     temp_solution = []
-    first_task = G.graph['first_task']
-    last_task = G.graph['last_task']
+    # first_task = G.graph['first_task']
+    # last_task = G.graph['last_task']
     for idx, i in enumerate(islands):
         # to keep track of worst_fit heuristic with good data locality
         utilization_per_pu = [0.0]*i['n_pus']
@@ -827,6 +832,7 @@ def check_utilization_mat(task_utilization_array) -> bool:
         # get the task placement on islands by getting the index of task_utilization_array
         # where the value is > 0.0
         task_set = np.argwhere(task_utilization_array[idx]>0.0).transpose()[0].tolist()
+        # TODO would it be better to sort the array in deacreasing task utilization ?
         for t in task_set:
             # get the PUs with minimal utilization
             pu = utilization_per_pu.index(min(utilization_per_pu))
@@ -870,10 +876,10 @@ def check_utilization_mat(task_utilization_array) -> bool:
 # This is a matrix-based (i.e. similar to matlab code) for cheking
 # whether the task placement is viable, i.e., the critical path 
 # does not exceed the DAG deadline and PU utilization is below 1.0
-def check_placement_with_max_freq(placement_array) -> bool:
+def check_placement_mat(placement_array) -> bool:
     # This procedure is divided into the following parts
     # 1) WCET definition for each task
-    # 2) check the critical path 
+    # 2) assign path wcet to each node and check the critical path against the dag deadline
     # 3) calculate relative deadline for each task
     # 4) check PU utilization constraint
 
@@ -892,8 +898,9 @@ def check_placement_with_max_freq(placement_array) -> bool:
     #         G.nodes[t]["wcet"] = int(math.ceil(wcet))
 
     n_nodes = len(G.nodes)
-    print('placement')
-    print (placement_array)
+    if debug:
+        print('placement')
+        print (placement_array)
 
     ################
     ##### these are the island-related matrices, defined when the frequency changes
@@ -929,8 +936,28 @@ def check_placement_with_max_freq(placement_array) -> bool:
     wcet_array = wcet_ref_ns_placement_array + wcet_delta_placement_array * expanded_ratio
     # rouding up to have integer wcet
     wcet_array = np.ceil(wcet_array).astype(int)
-    print ('wcet')
-    print (wcet_array)
+    # copy the wcet to the nodes
+    for idx, row in enumerate(wcet_array):
+        task_set = np.argwhere(row>0.0).transpose()[0].tolist()
+        for t in task_set: 
+            G.nodes[t]["wcet"] = wcet_array[idx,t]
+    if debug:
+        print ('wcet')
+        print (wcet_array)
+
+    ############################
+    # 2) assign path wcet to each node and check the critical path against the dag deadline
+    ############################
+    # deep copy the DAG
+    H = G.copy()
+    path_wcet_list = define_path_wcet(H)
+    if not path_wcet_list:
+        # an empty list, which means dag deadline is not feasible
+        return False
+    #print (path_wcet_list)
+    # get the longest path related to each node
+    path_wcet_array = np.asarray(path_wcet_list)
+    path_wcet_array = path_wcet_array.astype(float)
 
     ###########################
     # 3) calculate relative deadline for each task
@@ -944,19 +971,18 @@ def check_placement_with_max_freq(placement_array) -> bool:
     # for n in task_set:
     #     if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
     #         return False
-    print ('rel_deadline')
     dag_deadline = G.graph['deadline']
-    # get the longest path related to each node
-    # TODO replace it by Tommaso's function
-    path_wcet_array = np.asarray([19, 17, 19, 15, 19, 17, 19, 19, 19, 1])
-    path_wcet_array = path_wcet_array.astype(float)
     wcet_float_array = wcet_array.astype(float)
+    # replace all zeros by ones to perform the division
+    path_wcet_array[path_wcet_array == 0.0] = 1.0
     # divide 2 n_islands x n_nodes float matrices and multiply it by a scalar int
     # path_wcet_array is not actually a n_islands x n_nodes matrix, but this is expanded 
     # automatically to match wcet_array shape
     rel_deadline_float_array    = (wcet_float_array / path_wcet_array) * dag_deadline
     rel_deadline_array = np.floor(rel_deadline_float_array).astype(int)
-    print (rel_deadline_array)
+    if debug:
+        print ('rel_deadline')
+        print (rel_deadline_array)
 
     # The following check is equivalent to the following code:
     # for n in task_set:
@@ -971,15 +997,11 @@ def check_placement_with_max_freq(placement_array) -> bool:
             print ('wcet:')
             print (wcet_array)
         return False
-    # copy the rel_deadline and wcet to the nodes
+    # copy the rel_deadline to the nodes
     for idx, row in enumerate(rel_deadline_array):
         task_set = np.argwhere(row>0.0).transpose()[0].tolist()
         for t in task_set: 
             G.nodes[t]["rel_deadline"] = rel_deadline_array[idx,t]
-    for idx, row in enumerate(wcet_array):
-        task_set = np.argwhere(row>0.0).transpose()[0].tolist()
-        for t in task_set: 
-            G.nodes[t]["wcet"] = wcet_array[idx,t]
 
     ###########################
     # 4) calculate the PU utilization
@@ -991,11 +1013,12 @@ def check_placement_with_max_freq(placement_array) -> bool:
     #     for t in task_set:
     #         # get the utilization for the current task t
     #         pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
-    print ('utilization')
     # replace all zeros by ones to perform the division
     rel_deadline_float_array[rel_deadline_float_array == 0.0] = 1.0
     task_utilization_array = wcet_float_array / rel_deadline_float_array
-    print (task_utilization_array)
+    if debug:
+        print ('utilization')
+        print (task_utilization_array)
 
     ###########################
     # 5) check the PU utilization constraint
@@ -1004,21 +1027,26 @@ def check_placement_with_max_freq(placement_array) -> bool:
     # 5.2) run minizinc when worst-fit fails 
     return check_utilization_mat(task_utilization_array)
 
+# convert list of list into numpy array
+def convert_placement_list_to_np_array(placement):
+    n_nodes = len(G.nodes)
+    placement_array = np.zeros((n_islands, n_nodes),dtype=int)
+    for i in range(n_islands):
+        # exclude the 1st and last nodes
+        task_set = [t for t in G.nodes if t != first_task and t != last_task]
+        for t in task_set:
+            if t in placement[i]:
+                placement_array[i,t] = 1
+            else:
+                placement_array[i,t] = 0
+    return placement_array
 
 # np.set_printoptions(precision=2)
 # n_nodes = len(G.nodes)
 # # the 1st and last nodes are not in this list
 # placement = [[8, 7, 6, 3, 1, 5], [], [2, 4]]
-# placement_array = np.zeros((n_islands, n_nodes),dtype=int)
-# for i in range(n_islands):
-#     # exclude the 1st and last nodes
-#     task_set = [t for t in G.nodes if t != first_task and t != last_task]
-#     for t in task_set:
-#         if t in placement[i]:
-#             placement_array[i,t] = 1
-#         else:
-#             placement_array[i,t] = 0
-# feasible = check_placement_with_max_freq(placement_array)
+# placement_array = convert_placement_list_to_np_array(placement)
+# feasible = check_placement_mat(placement_array)
 # print (feasible)
 # print ('wcet - rel_deadline')
 # for t in range(len(G.nodes)):
@@ -1061,6 +1089,7 @@ print ('Frequency sequences:', len(freq_seq))
 n_terminate_cond = 5
 # a set of global counters used to gather stat data
 terminate_counters = [(0,0.0)] * n_terminate_cond
+mat_time = []
 terminate_counter_names = [
 ['task wcet > dag deadline'],
 ['critical path > dag deadline'],
@@ -1073,7 +1102,7 @@ terminate_counter_names = [
 # out of the solution space
 # Visiting in the reverse order to simplify the deletion from the list
 # for l in range(search_space_size,0,-1):
-#     if not check_placement_with_max_freq(leaf_list[l].islands):
+#     if not check_placement_mat(leaf_list[l].islands):
 #         print ('deleted placement', leaf_list[l].islands)
 #         del(leaf_list[l])
 
@@ -1145,7 +1174,7 @@ for l in leaf_list:
     # the search skip to the next task placement combination
     if l_idx%100 == 0:
         print ('Checking solution',l_idx, 'out of',search_space_size, 'possible mappings')
-    if l_idx >100:
+    if l_idx >10:
         break
     # for f in range(len(freq_seq)):
     keep_evaluating_freq_seq = True
@@ -1159,24 +1188,41 @@ for l in leaf_list:
         #     print(islands[i]["placement"])
         # print(freqs_per_island_idx)
         evaluated_solutions = evaluated_solutions +1
-        # define the wcet for each task based on which island each task is placed and the freq for each island
-        define_wcet()
-        # find the critical path and check whether the solution might be feasible.
-        # If so, divide the dag deadline proportionly to the weight of each node in the critical path
-        if not define_rel_deadlines(G): # TODO could have some variability in rel deadline assingment
-            bad_solutions =bad_solutions +1
-            # freq_cnts[f] = freq_cnts[f] +1
-            Fdag.not_viable()
-            keep_evaluating_freq_seq = Fdag.next()
-            continue
-        # check the island/processor utilization feasibility
-        # if not pu_utilization(0):
-        if not check_utilization():
-            bad_solutions =bad_solutions +1
-            # freq_cnts[f] = freq_cnts[f] +1
-            Fdag.not_viable()
-            keep_evaluating_freq_seq = Fdag.next()
-            continue
+        if True:
+            start_time = time.time()
+            # define the wcet for each task based on which island each task is placed and the freq for each island
+            define_wcet()
+            # find the critical path and check whether the solution might be feasible.
+            # If so, divide the dag deadline proportionly to the weight of each node in the critical path
+            if not define_rel_deadlines(G): # TODO could have some variability in rel deadline assingment
+                bad_solutions =bad_solutions +1
+                # freq_cnts[f] = freq_cnts[f] +1
+                Fdag.not_viable()
+                keep_evaluating_freq_seq = Fdag.next()
+                continue
+            # check the island/processor utilization feasibility
+            # if not pu_utilization(0):
+            if not check_utilization():
+                bad_solutions =bad_solutions +1
+                # freq_cnts[f] = freq_cnts[f] +1
+                Fdag.not_viable()
+                keep_evaluating_freq_seq = Fdag.next()
+                continue
+            elapsed_time = time.time() - start_time
+            mat_time.append(elapsed_time)
+        else:
+            start_time = time.time()
+            placement = [i["placement"] for i in islands]
+            placement_array = convert_placement_list_to_np_array(placement)
+            feasible = check_placement_mat(placement_array)
+            if not feasible:
+                bad_solutions =bad_solutions +1
+                # freq_cnts[f] = freq_cnts[f] +1
+                Fdag.not_viable()
+                keep_evaluating_freq_seq = Fdag.next()
+                continue
+            elapsed_time = time.time() - start_time
+            mat_time.append(elapsed_time)
         # Since this solutions is feasible, check whether this was the lowest power found so far.
         # If so, update the best solution
         potential_solutions = potential_solutions +1
@@ -1200,7 +1246,7 @@ for l in leaf_list:
 
 print("")
 if best_solutions > 0:
-    print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
+    print ('best solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
 else:
     print ('no feasiable solution was found :(')
 
@@ -1223,3 +1269,6 @@ print ('freq histogram (unfeasible candidates):')
 for i in range(len(freq_cnts)):
     if freq_cnts[i] != 0 :
         print ("{:.2f}".format(freq_cnts[i][0]/sum_freqs), ", {:.2f}".format(freq_cnts[i][1]/sum_freqs), freq_seq[i])
+
+print ('mat time:',sum(mat_time)/float(l_idx))
+print ('minizinc:', minizinc_cnt)
