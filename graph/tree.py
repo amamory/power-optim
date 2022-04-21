@@ -110,8 +110,11 @@ def _build_perfect_tree(ary,height, end_height, branch, islands) -> Node:
 
 if __name__ == "__main__":
 
-    node_id = 5
-    leaf_list = task_island_combinations(3,7, 6)
+    # task_island_combinations(3,7,6)
+    # generates the placement sequence of tasks 6 and 5, using a tree of height 2 == 7+1-6
+    # task_island_combinations(3,2)
+    # generates the placement sequence of tasks 1 and 0, using a tree of height 2 == 2+1-1
+    leaf_list = task_island_combinations(3,2)
     # check the list of leafs
     for l in leaf_list:
         print (l.data)
