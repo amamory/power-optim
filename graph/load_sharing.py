@@ -1,0 +1,59 @@
+# multiprocessing lib
+# https://docs.python.org/3/library/multiprocessing.html#module-multiprocessing.pool
+# https://stackoverflow.com/questions/4413821/multiprocessing-pool-example
+# https://www.programcreek.com/python/example/3393/multiprocessing.Pool
+# ray lib
+# https://towardsdatascience.com/10x-faster-parallel-python-without-python-multiprocessing-e5017c93cce1
+# https://towardsdatascience.com/modern-parallel-and-distributed-python-a-quick-tutorial-on-ray-99f8d70369b8
+# https://docs.ray.io/en/latest/cluster/jobs-package-ref.html
+import sys
+import os
+import subprocess
+import multiprocessing as mp
+import networkx as nx
+import pandas as pd
+import numpy as np
+import math
+import time
+import yaml
+import random
+
+# libs
+import tree
+
+n_threads = 4
+n_islands = 3
+initial_task = 7
+n = 1
+while (n_threads > n_islands**n):
+    n=n+1
+end_task = initial_task-n+1
+print (n, n_islands**n)
+task_placements = tree.task_island_combinations(n_islands,initial_task,end_task)
+for l in task_placements:
+    print (l.data)
+    for i in l.islands:
+        print (i)
+task_placements = [i.islands for i in task_placements]
+
+# Check whether it is possible to prune an entire branch of the search space.
+# This might happen if the tasks placed so far are big enough to break the deadline or power constraints.
+# If it's possible to prune, then just remove this item from the 'task_placements' list
+
+def search_best_placement(intial_placement) -> list():
+    timeDelay = random.randrange(10, 40)
+    print (timeDelay, intial_placement, mp.current_process().name,mp.Process().name)
+    time.sleep(timeDelay)
+    print (mp.current_process().name,'done!')
+    return [timeDelay]
+
+
+pool = mp.Pool(n_threads)
+best_placement_list = []
+for best_placement in pool.map(search_best_placement, task_placements):
+    best_placement_list.append(best_placement)
+
+print (best_placement_list)
+
+pool.close()
+pool.join()
