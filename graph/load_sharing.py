@@ -21,9 +21,9 @@ import random
 # libs
 import tree
 
-n_threads = 4
+n_threads = 1
 n_islands = 3
-initial_task = 7
+initial_task = 5
 n = 1
 while (n_threads > n_islands**n):
     n=n+1
@@ -35,17 +35,27 @@ for l in task_placements:
     for i in l.islands:
         print (i)
 task_placements = [i.islands for i in task_placements]
+task_placements = [[[6,5],[],[]]]
+task_placements = [[[],[],[]]]
 
 # Check whether it is possible to prune an entire branch of the search space.
 # This might happen if the tasks placed so far are big enough to break the deadline or power constraints.
 # If it's possible to prune, then just remove this item from the 'task_placements' list
+def prune():
+    pass
 
 def search_best_placement(intial_placement) -> list():
-    timeDelay = random.randrange(10, 40)
-    print (timeDelay, intial_placement, mp.current_process().name,mp.Process().name)
-    time.sleep(timeDelay)
+    print (intial_placement, mp.current_process().name,mp.Process().name)
+    search_tree = tree.Tree(intial_placement,initial_task,n_islands)
+    n_leafs = 0
+    placement = search_tree.get_next_leaf()
+    while (placement):
+        print (mp.current_process().name, placement)
+        #time.sleep(random.randrange(2, 10))
+        placement = search_tree.get_next_leaf()
+        n_leafs += 1
     print (mp.current_process().name,'done!')
-    return [timeDelay]
+    return [n_leafs]
 
 
 pool = mp.Pool(n_threads)
