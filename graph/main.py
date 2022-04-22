@@ -274,7 +274,7 @@ def define_wcet() -> None:
         for t in i['placement']:
             wcet_ref_ns = G.nodes[t]['wcet_ref_ns']
             wcet_ref = G.nodes[t]['wcet_ref']
-            wcet = wcet_ref_ns + (capacity * (wcet_ref-wcet_ref_ns)/f * f_ref)
+            wcet = wcet_ref_ns + float((wcet_ref-wcet_ref_ns)/f * f_ref)/float(capacity)
             G.nodes[t]["wcet"] = int(math.ceil(wcet))
     # cannot have a task not placed in an island
     for t in G.nodes:
@@ -694,8 +694,8 @@ def create_minizinc_datafile(i, placement, freq_seq, filename):
                 util = float(G.nodes[n]['wcet'])/float(G.nodes[n]['rel_deadline'])
         task_utilization.append(round(util,4))
 
-    f.write("% wcet for each task\n")
-    f.write("T = %s;\n\n" % (str(wcet)))
+    # f.write("% wcet for each task\n")
+    # f.write("T = %s;\n\n" % (str(wcet)))
 
     f.write("% relative deadline to each task\n")
     f.write("D = %s;\n\n" % (rel_deadline))
