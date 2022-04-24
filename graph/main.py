@@ -1203,7 +1203,7 @@ def search_best_placement(placement_setup) -> tuple():
             # print ('PLACEMENT and FREQs')
             # for i in range(n_islands):
             #     print(islands[i]["placement"])
-            # print(freqs_per_island_idx)
+            #print('freqs:',  hex(id(freqs_per_island_idx)), hex(id(Fdag)), freqs_per_island_idx)
             evaluated_solutions = evaluated_solutions +1
             start_time = time.time()
             if True:
@@ -1314,7 +1314,7 @@ def search_best_placement(placement_setup) -> tuple():
 
 def main():
 
-    n_threads = 1
+    n_threads = 2
     max_placement_per_worker = 10
     # n_islands = 2
     n_tasks = len(G.nodes)
