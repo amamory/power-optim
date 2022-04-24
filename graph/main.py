@@ -33,8 +33,10 @@ for idx, i in enumerate(sw['tasks']):
 # load the DAG definition
 print ('')
 print ('DAGs:')
-G = None
+# a list of nertowx dags
+dags = []
 for idx, i in enumerate(sw['dags']):
+    G = None
     print ('DAG:',idx)
     # DAG edges
     print (' - edges:',len(i['edge_list']))
@@ -90,6 +92,8 @@ for idx, i in enumerate(sw['dags']):
         sys.exit(1)
     G.graph['first_task'] =  first_task[0]
     G.graph['last_task'] = last_task[0]
+    # save it into the list of DAGs
+    dags.append(G)
 
 
 # load the hardware definition file
@@ -144,6 +148,9 @@ n_islands = len(islands)
 # initialize them to the minimal freq, which is ALWAYS the first one
 freqs_per_island_idx = [0]* n_islands
 
+# get the total number of nodes of all dags
+n_nodes = sum([len(G.nodes) for G in dags])
+
 # debug mode
 debug = False
 
@@ -163,36 +170,24 @@ print ("unrelated sets:")
 for u in unrelated:
     print (u)
 
-print ("dag properties:")
-print (G.graph)
+for G in dags:
+    print ("dag properties:")
+    print (G.graph)
 
-print ("node properties:")
-for k,v in G.nodes(data=True):
-    print(k,v)
+    print ("node properties:")
+    for k,v in G.nodes(data=True):
+        print(k,v)
 
-# print ("edge properties:")
-# for n1, n2, data in G.edges(data=True):
-#     print(n1, n2, data)
+    # print ("edge properties:")
+    # for n1, n2, data in G.edges(data=True):
+    #     print(n1, n2, data)
 
-# processing unit p,
-def get_island(p):
-    if p >= total_pus:
-        print ('ERROR: invalid # of PUs', p)
-        sys.exit(1)
-    i_id = 0
-    n = 0
-    for i in islands:
-        n = n + i['n_pus']
-        if n > p:
-            return i_id
-        i_id = i_id +1
-    
-    print ('ERROR: should never reach here', p)
-    sys.exit(1)
 
 # return power consumed by the island i
+# TODO try a matrix-based version of this function
 def island_power(i) -> float:
     # get the index of the tasks deployed in island i
+    # assumes the tasks where already placed on the islands
     deployed_tasks = [x for x in islands[i]['placement']] 
     
     # get the assigned freq and scales it down linearly with the the island max frequency
@@ -202,16 +197,25 @@ def island_power(i) -> float:
     idle_power = islands[i]['idle_power'][freqs_per_island_idx[i]]
 
     utilization = 0.0
-    activation_period = G.graph['activation_period']
     for t in deployed_tasks:
-        # assumes that wcet was calculated previously
-        wcet = G.nodes[t]['wcet']
-        utilization = utilization + (float(wcet)/float(activation_period))
-    island_power = (islands[i]['n_pus'] * idle_power) + (busy_power-idle_power) * float(utilization)
-    # print (i, utilization, island_power, deployed_tasks, freqs_per_island_idx)
+        activation_period  = 0
+        wcet = 0
+        # find to which DAG this task belongs to
+        for G in dags:
+            if t in G.nodes():
+                activation_period = G.graph['activation_period']
+                # assumes that wcet was calculated previously
+                wcet = G.nodes[t]['wcet']
+        if activation_period != 0:
+            utilization = utilization + (float(wcet)/float(activation_period))
+        else:
+            print ("ERROR: not expecting to reach this point in 'island_power' function")
+            sys.exit(1)
+    # About this part (islands[i]['n_pus'] * idle_power)
+    # The rational is that, even when the utilization is 0, we have to account for the idle power of each pu of this island
+    island_total_power = (islands[i]['n_pus'] * idle_power) + (busy_power-idle_power) * float(utilization)
 
-    # TODO put a comment about (islands[i]['n_pus'] * idle_power)
-    return island_power
+    return island_total_power
 
 
 # sum up the power of each island based on current task placement and island frequency
@@ -221,41 +225,43 @@ def define_power() ->  float:
         total_power = total_power +  island_power(i)
     return total_power
 
-# TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
-def create_frequency_sequence() -> list():
-    freq_seq = []
-    stop = False
-    # start with all islands using their respective minimal frequencies
-    freqs_per_island_idx = [0]*n_islands
-    freq_seq.append(list(freqs_per_island_idx))
-    while True:
-        # points to the last incremented island
-        inced = 0
-        for i in range(n_islands):
-            # if island idx i is not pointing to its max freq, then point to the next higher freq of this island
-            if freqs_per_island_idx[i] < (n_freqs_per_island[i]-1):
-                freqs_per_island_idx[i] = freqs_per_island_idx[i] +1
-                inced = i
-                break
-            else:
-                # if this is not the last island, then go to the next island to increment its freq
-                if i >= (n_islands-1):
-                    stop = True
-        # all island before the last incremented island must start over at their lowest freq
-        for i in range(inced):
-            freqs_per_island_idx[i] = 0
-        freq_seq.append(list(freqs_per_island_idx))
-        # if all freqs are at their maximal value, then stop
-        if stop:
-            break
-    # want to get have the maximal freq for each island 1st, to prune the search space faster
-    reversed_freq_seq = list(reversed(freq_seq))
-    return reversed_freq_seq
+# # TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
+# def create_frequency_sequence() -> list():
+#     freq_seq = []
+#     stop = False
+#     # start with all islands using their respective minimal frequencies
+#     freqs_per_island_idx = [0]*n_islands
+#     freq_seq.append(list(freqs_per_island_idx))
+#     while True:
+#         # points to the last incremented island
+#         inced = 0
+#         for i in range(n_islands):
+#             # if island idx i is not pointing to its max freq, then point to the next higher freq of this island
+#             if freqs_per_island_idx[i] < (n_freqs_per_island[i]-1):
+#                 freqs_per_island_idx[i] = freqs_per_island_idx[i] +1
+#                 inced = i
+#                 break
+#             else:
+#                 # if this is not the last island, then go to the next island to increment its freq
+#                 if i >= (n_islands-1):
+#                     stop = True
+#         # all island before the last incremented island must start over at their lowest freq
+#         for i in range(inced):
+#             freqs_per_island_idx[i] = 0
+#         freq_seq.append(list(freqs_per_island_idx))
+#         # if all freqs are at their maximal value, then stop
+#         if stop:
+#             break
+#     # want to get have the maximal freq for each island 1st, to prune the search space faster
+#     reversed_freq_seq = list(reversed(freq_seq))
+#     return reversed_freq_seq
 
 # define the wcet of each task based on in which island the task is placed
 def define_wcet() -> None:
-    for t in G.nodes:
-        G.nodes[t]["wcet"] = 0
+    # wcet for all tasks assigned to 0
+    for G in dags:
+        for t in G.nodes:
+            G.nodes[t]["wcet"] = 0
     # cannot find a task in multiple island
     for idx1,i1 in enumerate(islands[:-1]):
         for idx2, i2 in enumerate(islands[idx1+1:]):
@@ -265,152 +271,41 @@ def define_wcet() -> None:
             if len(inter) > 0:
                 print ('ERROR: task(s) ', inter, 'where found in islands',idx1,'and',idx2)
                 sys.exit(1)
-    f_ref = G.graph['ref_freq']
+    # TODO reference frequency is an attribute of the hardware or the software ?!?
+    # it would be much easier if ref_freq would be an attribute of the hw
+    f_ref = dags[0].graph['ref_freq']
     # calculate the wcet for each task
-    # TODO make a matricial version of these loop, replacing scalar by matrices, eliminating the loops
-    # prone to be executed in OpenMP/GPUs
     for idx, i in enumerate(islands):
         # get the frequency assigned to the island i
         f = i['freqs'][freqs_per_island_idx[idx]]
         capacity = i['capacity']
         for t in i['placement']:
+            # find to which DAG this task belongs to
+            G = None
+            for dag in dags:
+                if t in dag.nodes():
+                    G = dag
             wcet_ref_ns = G.nodes[t]['wcet_ref_ns']
             wcet_ref = G.nodes[t]['wcet_ref']
             wcet = wcet_ref_ns + float((wcet_ref-wcet_ref_ns)/f * f_ref)/float(capacity)
             G.nodes[t]["wcet"] = int(math.ceil(wcet))
     # cannot have a task not placed in an island
-    for t in G.nodes:
-        if G.nodes[t]["wcet"] == 0:
-            print ('ERROR: wcet for task', t, 'not defined')
-            sys.exit(1)
+    for G in dags:
+        for t in G.nodes:
+            if G.nodes[t]["wcet"] == 0:
+                print ('ERROR: wcet for task', t, 'not defined')
+                sys.exit(1)
 
     # the 1st and last nodes have no computation
     G.nodes[G.graph['first_task']]["wcet"] = 0
     G.nodes[G.graph['last_task']]["wcet"] = 0
-
-# assign relative deadline to each node
-# potentially optmized version using 'shortest path' algorithms instead of 'all paths'
-# compexity O(n*(n+e))
-# return false if the deadline is not feasible
-# TODO: code critical_path function based on the node weight rather than using shortest path based on edge weight
-# https://stackoverflow.com/questions/6007289/calculating-the-critical-path-of-a-graph
-def define_rel_deadlines2(G) -> bool:
-    # main steps:   
-    # 1) convert node weight into edge weight to find longest paths
-    # 2) get the critical path to each node
-    # 3) assign deadline to all nodes proportionally to its wcet and path wcet
-    # 4) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
-    # 5) transfer the relative deadline back to the original DAG
-
-    ####################
-    # 1) convert node weight into edge weight to find longest paths
-    ####################
-    # deep copy the DAG
-    H = G.copy()
-
-    H.nodes[H.graph['first_task']]["wcet"] = 0
-    H.nodes[H.graph['last_task']]["wcet"] = 0
-    dag_deadline = H.graph['deadline']
-
-    # get max node weight in the DAG. This is required to invert the weights since we need the longest path, not the shortest one
-    max_weight = max([H.nodes[u]["wcet"] + H.nodes[v]["wcet"] for u, v in H.edges])
-    max_task_wcet = max([H.nodes[n]["wcet"] for n in H.nodes])
-
-    # if a single task is longer than the dag deadline, then this is not a solution
-    if (max_task_wcet > dag_deadline):
-        if debug:
-            print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
-            for t in H.nodes:
-                print (t, H.nodes[t]["wcet"])
-        return False
-
-    # assign the edge weight as the sum of the node weights
-    for u, v, data in H.edges(data=True):
-        # invert the edge weight since we are looking for the longest path
-        data['weight'] = max_weight - (H.nodes[u]["wcet"] + H.nodes[v]["wcet"])
-
-    for n in H.nodes:
-        H.nodes[n]["rel_deadline"] = 0
-
-    critical_path = nx.shortest_path(H,H.graph['first_task'],H.graph['last_task'],weight='weight')
-    wcet_critical_path = sum([G.nodes[n1]["wcet"] for n1 in critical_path])
-    if wcet_critical_path > dag_deadline:
-        if debug:
-            print ('WARNING: critical path', critical_path,'has lenght', wcet_critical_path, 'which is longer than then DAG deadline', dag_deadline)
-        return False
-
-    ####################
-    # 2) get all paths to each end node
-    ####################
-    wcet_path_list  = [0]*len(H.nodes)
-    # remove the initial and last nodes of the DAG
-    task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
-    for n in task_set:
-        # get the critical path from the node 0 to the node n
-        ipath = nx.shortest_path(H,0,n,weight='weight')
-        isum = sum([H.nodes[n1]["wcet"] for n1 in ipath])
-        # print (n, isum, ipath)
-        # get the critical path from the node n to the last node 
-        opath = nx.shortest_path(H,n,H.graph['last_task'], weight='weight')
-        osum = sum([H.nodes[n1]["wcet"] for n1 in opath[1:]])
-        # print (n, osum, opath)
-        # assign the critical path to node n
-        wcet_path_list[n] = isum+osum
-
-    ############################
-    # 3) assign deadline to all nodes proportionally to its wcet and path wcet
-    ############################
-    for n in task_set:
-        wcet_ratio = float(H.nodes[n]["wcet"])/float(wcet_path_list[n])
-        # assign rel_deadline proportional to its wcet
-        H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
-
-    ############################
-    # 4) 2nd pass of trying to increase the "rel_deadline" of the last nodes without break the dag deadline
-    ############################
-    # So far, it is not garanteed that the nodes have theirs respective maximal relative deadline. This last step does that 
-    # by trying to increase the relative deadline of the last nodes.
-    # get the last edges and nodes
-    last_edges = H.in_edges(H.graph['last_task'])
-    last_nodes = [e[0] for e in last_edges]
-    for n in last_nodes:
-        # the critical path
-        path = nx.shortest_path(H,H.graph['first_task'],n,weight='weight')
-        max_rel_deadline_sum = sum([H.nodes[n1]["rel_deadline"] for n1 in path])
-        # assign any reamaning slack to its last node
-        if max_rel_deadline_sum > dag_deadline:
-            if debug:
-                print('WARNING: path',path, 'has cost',max_rel_deadline_sum)
-        H.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
-        if H.nodes[n]["rel_deadline"] <= 0:
-            if debug:
-                print('WARNING: path',path, 'has non positive cost',H.nodes[n]["rel_deadline"])
-
-        # if the path is longer than the DAG deadline, this cannot be a solution
-        if max_rel_deadline_sum > dag_deadline:
-            if debug:
-                print ('WARNING: path', path, 'takes', max_rel_deadline_sum,', longer than DAG deadline', dag_deadline)
-            return False
-
-    # the relative deadline of a task cannot be lower than its wcet
-    for n in task_set:
-        if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
-            if debug:
-                print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
-            return False
-    ############################
-    # 5) transfer the relative deadline back to the original DAG
-    ############################
-    for n in H.nodes:
-        G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
-
-    return True
 
 # assign path wcet to each node
 # TODO the underlaying algorithm is graph-related search
 # which is not scalable code with compexity O(n!)
 # return the list of path wcet for each node. return an empty list if 
 # the dag deadline is not feasible
+# TODO update it to work with multiple DAGs
 def define_path_wcet(H) -> list():
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
@@ -437,8 +332,8 @@ def define_path_wcet(H) -> list():
             print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
             for t in H.nodes:
                 print (t, H.nodes[t]["wcet"])
-        temp_tuple = (terminate_counters[0][0]+1,terminate_counters[0][1]+elapsed_time)
-        terminate_counters[0] = temp_tuple
+        # temp_tuple = (terminate_counters[0][0]+1,terminate_counters[0][1]+elapsed_time)
+        # terminate_counters[0] = temp_tuple
         return []
 
     # assign the edge weight as the sum of the node weights
@@ -475,8 +370,8 @@ def define_path_wcet(H) -> list():
     if wcet_critical_path > dag_deadline:
         if debug:
             print ('WARNING: critical path', critical_path,'has lenght', wcet_critical_path, 'which is longer than then DAG deadline', dag_deadline)
-        temp_tuple = (terminate_counters[1][0]+1,terminate_counters[1][1]+elapsed_time)
-        terminate_counters[1] = temp_tuple            
+        # temp_tuple = (terminate_counters[1][0]+1,terminate_counters[1][1]+elapsed_time)
+        # terminate_counters[1] = temp_tuple            
         return []
 
     ####################
@@ -525,8 +420,8 @@ def define_path_wcet(H) -> list():
         if max_partial_path[0] > dag_deadline:
             if debug:
                 print ('WARNING: critical path', max_partial_path[1], 'takes', max_partial_path[0],', longer than DAG deadline', dag_deadline)
-            temp_tuple = (terminate_counters[2][0]+1,terminate_counters[2][1]+elapsed_time)
-            terminate_counters[2] = temp_tuple
+            # temp_tuple = (terminate_counters[2][0]+1,terminate_counters[2][1]+elapsed_time)
+            # terminate_counters[2] = temp_tuple
             #print ('PARTIAL PATH:')
             #for p in path_wcet_sum:
             #    print (p, [H.nodes[n1]["wcet"] for n1 in p[1]])
@@ -561,6 +456,7 @@ def define_path_wcet(H) -> list():
 # TODO it's also very inneficient because this is calculated for every frequency for every placement.
 # the critical path and the relative deadlines could be pre-processed only once at startup
 # TODO replace it by Tommaso's function
+# TODO update it to work with multiple DAGs
 def define_rel_deadlines(G) -> bool:
     # main steps:   
     # 1) assign path wcet to each node - compexity O(n!)
@@ -625,8 +521,8 @@ def define_rel_deadlines(G) -> bool:
         if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
             if debug:
                 print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
-            temp_tuple = (terminate_counters[3][0]+1,0.0)
-            terminate_counters[3] = temp_tuple
+            # temp_tuple = (terminate_counters[3][0]+1,0.0)
+            # terminate_counters[3] = temp_tuple
             return False
 
     ############################
@@ -642,6 +538,7 @@ def define_rel_deadlines(G) -> bool:
 # instead of only the ones assigned to the island. This way, it's easier 
 # to check the precedence constraints. However, the utilization is zero
 # when the task is not mapped to the target island.
+# TODO update it to work with multiple DAGs
 def create_minizinc_datafile(i, placement, freq_seq, filename):
 
     def unrelated_line(f, line_start, n, unrel_row):
@@ -736,6 +633,7 @@ minizinc_cnt = 0
 # Optimal solution to the place a task set onto PUs.
 # It returns true if the task placement is feasible.
 # TODO capture the placement output of minizinc
+# TODO update it to work with multiple DAGs
 def optimal_placement(i, freq_seq) -> bool:
     # create the minizinc dzn file
     # run minizinc
@@ -782,6 +680,7 @@ def optimal_placement(i, freq_seq) -> bool:
 # If the heuristic says that it is not possible to place the tasks, then it runs an exact optimal
 # solver to confirm it. Hopefully, the heuristic will be sufficient most of the times.
 # Returns false if any PU on any island exeeds the utilization threshold.
+# TODO update it to work with multiple DAGs
 def check_utilization() -> bool:
     # for each island, run the placement heuristic and, if required, the exact solution
     temp_solution = []
@@ -820,6 +719,7 @@ def check_utilization() -> bool:
 
 # 2nd implementation of check_utilization() where the task utilization
 # was calculated before hand
+# TODO update it to multiple DAGs
 def check_utilization_mat(task_utilization_array) -> bool:
     # for each island, run the placement heuristic and, if required, the exact solution
     temp_solution = []
@@ -848,7 +748,8 @@ def check_utilization_mat(task_utilization_array) -> bool:
                 sys.exit(1)
             if utilization_per_pu[pu] + pu_utilization > 1.0:
                 # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
-                return optimal_placement(idx,freqs_per_island_idx)
+                # return optimal_placement(idx,freqs_per_island_idx)
+                return False
                 # task_placement = []
                 # if len(task_placement) == 0:
                 #     return False
@@ -878,6 +779,7 @@ def check_utilization_mat(task_utilization_array) -> bool:
 # This is a matrix-based (i.e. similar to matlab code) for cheking
 # whether the task placement is viable, i.e., the critical path 
 # does not exceed the DAG deadline and PU utilization is below 1.0
+# TODO update it to work w multiple DAGs
 def check_placement_mat(placement_array) -> bool:
     # This procedure is divided into the following parts
     # 1) WCET definition for each task
@@ -1029,13 +931,13 @@ def check_placement_mat(placement_array) -> bool:
     # 5.2) run minizinc when worst-fit fails 
     return check_utilization_mat(task_utilization_array)
 
-# convert list of list into numpy array
+# convert the task placement for all DAGs from the format of 'list of list' into numpy array
 def convert_placement_list_to_np_array(placement):
     n_nodes = len(G.nodes)
     placement_array = np.zeros((n_islands, n_nodes),dtype=int)
     for i in range(n_islands):
-        # exclude the 1st and last nodes
-        task_set = [t for t in G.nodes if t != first_task and t != last_task]
+        # exclude the 1st and last nodes of all DAGs
+        task_set = [t for G in dags for t in G.nodes if t != G.graph['first_task'] and t != G.graph['last_task']]
         for t in task_set:
             if t in placement[i]:
                 placement_array[i,t] = 1
