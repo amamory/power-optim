@@ -1,6 +1,9 @@
 import sys
 import os
 import subprocess
+# distributed processes with multiprocessing lib
+# TODO https://zditect.com/code/python/python-multiprocess-process-pool-data-sharing-process-communication-distributed-process.html
+import multiprocessing as mp
 import networkx as nx
 import pandas as pd
 import numpy as np
@@ -9,7 +12,6 @@ import time
 import yaml
 
 # libs
-import tree
 import freq_dag
 
 
@@ -1057,47 +1059,6 @@ def convert_placement_list_to_np_array(placement):
 
 # sys.exit(1)
 
-# The number of combinations of t tasks in i islands
-# is the number of leafs in a Perfect N-ary (i.e. i) Tree of height h (i.e. t).
-# https://ece.uwaterloo.ca/~dwharder/aads/Lecture_materials/5.04.N-ary_trees.pdf
-# The number of nodes of a Perfect N-ary Tree of height h is: (N^(h+1)-1)/(N-1)
-# Thus, the number of leafs in a Perfect N-ary Tree of height h is: ((N^(h+1)-1)/(N-1)) - ((N^(h)-1)/(N-1))
-# Let a function C(i,t) denote the combinetion mentioned above, also decribed in the function
-# tree.num_leafs_perfect_tree(ary,h):
-#
-#  - C(2,2) = 4
-#  - C(2,3) = 8
-#  - C(3,2) = 9
-#  - C(3,3) = 27
-#  - C(3,10) = 59,049 
-#  - C(3,20) = 3,486,784,401 
-#  - C(2,20) = 1,048,576 
-#  - C(2,30) = 1,073,741,824 ==> assuming each node uses 1 byte of mem, which is obviously understimated, this tree would use at least 1Gbyte RAM
-#
-#  So, assuming C(2,30) = 1,073,741,824, and assuming each node uses 1 byte of mem, 
-#  which is obviously understimated, this tree would use at least 1Gbyte RAM.
-leaf_list = tree.task_island_combinations(n_islands,len(G.nodes))
-# uncomment this to start the search with all tasks in the island with the biggest capacity
-#leaf_list = list(reversed(leaf_list))
-search_space_size = len(leaf_list)
-# this is the sequence the set of frequencies must be evaluated
-freq_seq = create_frequency_sequence()
-# freq_cnts = [0]*len(freq_seq)
-print ('Frequency sequences:', len(freq_seq))
-
-# teminate search conditions used to understand the most prevalent ones
-n_terminate_cond = 5
-# a set of global counters used to gather stat data
-terminate_counters = [(0,0.0)] * n_terminate_cond
-mat_time = []
-terminate_counter_names = [
-['task wcet > dag deadline'],
-['critical path > dag deadline'],
-['partial path > dag deadline'],
-['task wcet > task rel deadline'],
-['pu utilization violation']
-]
-
 # Simplified algoritm used to prune some task placements
 # out of the solution space
 # Visiting in the reverse order to simplify the deletion from the list
@@ -1150,125 +1111,281 @@ terminate_counter_names = [
 # print ("{:.2f}".format(best_power), best_freq)
 # sys.exit(1)
 
-# class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
-Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
+# To pass the shared variables to the pool.
+# like shared values, locks cannot be shared in a Pool - instead, pass the 
+# multiprocessing.Lock() at Pool creation time, using the initializer=init_lock.
+# This will make your lock instance global in all the child workers.
+# The init_globals is defined as a function - see init_globals() at the top.
+# source : https://serveanswer.com/questions/multiprocessing-pool-map-multiple-arguments-with-shared-value-resolved
+# source: https://stackoverflow.com/questions/53617425/sharing-a-counter-with-multiprocessing-pool
+def init_globals(counter, l):
+    global shared_best_power
+    global shared_lock
+    shared_best_power = counter
+    shared_lock = l
 
+# converts an integer in to a task mapping, i.e., a list of list
+def get_mapping(curr_mapping, n_islands, n_tasks) -> list():
+    mapping = [[] for i in range(n_islands)]
+    island = 0
+    # compute island onto which I'm mapping the i-th task
+    for i in range(n_tasks): # scanning through all the n tasks
+        island = int(curr_mapping / (n_islands**(i)) % n_islands)
+        mapping[island].append(i)
+    return mapping
 
-best_power = float("inf")
-best_task_placement = [0]*n_islands
-best_freq_idx = []
-l_idx = 0
-evaluated_solutions = 0
-potential_solutions = 0
-best_solutions = 0
-bad_solutions = 0
-print("")
-for l in leaf_list:
-    # assume the following task placement onto the set of islands
-    for i in range(n_islands):
-        islands[i]["placement"] = l.islands[i]
-    Fdag.set_task_placement(l.islands)
-    # Initialize freq to each island to their respective max freq.
-    # The rational is that, if this task placement does not respect the DAG deadline
-    # assigning their maximal frequencies, then this task placement cannot be a valid solution and
-    # the search skip to the next task placement combination
-    if l_idx%100 == 0:
-        print ('Checking solution',l_idx, 'out of',search_space_size, 'possible mappings')
-    if l_idx >10:
-        break
-    # for f in range(len(freq_seq)):
-    keep_evaluating_freq_seq = True
-    while keep_evaluating_freq_seq:
-        # get the frequency sequence to be tested
-        #freqs_per_island_idx = freq_seq[f]
-        freqs_per_island_idx = Fdag.get()
-        # if debug:
-        # print ('PLACEMENT and FREQs')
+# Main function that searches for the best placement found by this working process.
+# Return format (best_power, best_task_placement, best_freq_idx).
+# Return format (double, list of list, list)
+def search_best_placement(placement_setup) -> tuple():
+    print ('\nStarting work load:\n', ' - initial placement:', placement_setup[0], '\n  - # placements:', placement_setup[1], '\n  - process:', mp.current_process().name,mp.Process().name)
+    current_placement = placement_setup[0]
+    n_placements = placement_setup[1]
+
+    # TODO ready the sw yaml and copy the dag
+
+    n_tasks = len(G.nodes)
+
+    # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
+    Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
+
+    # this is the non-optimized data structure for the frequencies set
+    # freq_seq = create_frequency_sequence()
+    # freq_cnts = [0]*len(freq_seq)
+    # print ('Frequency sequences:', len(freq_seq))
+
+    # place holders for the best solution found by this process
+    best_power = float("inf")
+    best_task_placement = [0]*n_islands
+    best_freq_idx = []
+
+    # performance counters/timers
+    execution_time_list = []
+    time_to_write_shared_var = []
+    time_to_read_shared_var = []
+    evaluated_solutions = 0
+    potential_solutions = 0
+    best_solutions = 0
+    bad_power = 0
+    bad_deadline = 0
+    bad_utilization = 0
+
+    # # testing the lock mechanism
+    # with shared_lock:
+    #     best_power = shared_best_power.value
+    #     shared_best_power.value = best_power + 1 
+    #     print (shared_best_power.value)
+
+    print("")
+    for i in range(n_placements):
+        placement = get_mapping(current_placement, n_islands, n_tasks)
+        # assume the following task placement onto the set of islands
         # for i in range(n_islands):
-        #     print(islands[i]["placement"])
-        # print(freqs_per_island_idx)
-        evaluated_solutions = evaluated_solutions +1
-        if True:
+        #     islands[i]["placement"] = l.islands[i]
+        print (mp.current_process().name,':', placement)
+
+
+        # Initialize freq to each island to their respective max freq.
+        # The rational is that, if this task placement does not respect the DAG deadline
+        # assigning their maximal frequencies, then this task placement cannot be a valid solution and
+        # the search skip to the next task placement combination
+        Fdag.set_task_placement(placement)
+
+        if i%100 == 0:
+            print ('Checking solution',i, 'out of',n_placements, 'possible mappings')
+        # for f in range(len(freq_seq)):
+        keep_evaluating_freq_seq = True
+        while keep_evaluating_freq_seq:
+            # get the frequency sequence to be tested
+            #freqs_per_island_idx = freq_seq[f]
+            freqs_per_island_idx = Fdag.get()
+            # if debug:
+            # print ('PLACEMENT and FREQs')
+            # for i in range(n_islands):
+            #     print(islands[i]["placement"])
+            # print(freqs_per_island_idx)
+            evaluated_solutions = evaluated_solutions +1
             start_time = time.time()
-            # define the wcet for each task based on which island each task is placed and the freq for each island
-            define_wcet()
-            # find the critical path and check whether the solution might be feasible.
-            # If so, divide the dag deadline proportionly to the weight of each node in the critical path
-            if not define_rel_deadlines(G): # TODO could have some variability in rel deadline assingment
-                bad_solutions =bad_solutions +1
-                # freq_cnts[f] = freq_cnts[f] +1
-                Fdag.not_viable()
-                keep_evaluating_freq_seq = Fdag.next()
-                continue
-            # check the island/processor utilization feasibility
-            # if not pu_utilization(0):
-            if not check_utilization():
-                bad_solutions =bad_solutions +1
-                # freq_cnts[f] = freq_cnts[f] +1
-                Fdag.not_viable()
-                keep_evaluating_freq_seq = Fdag.next()
-                continue
+            if True:
+                # define the wcet for each task based on which island each task is placed and the freq for each island
+                define_wcet()
+
+                # wait for the updated power bound via the shared variable 
+                # TODO no need to read it every iteration
+                start_time2 = time.time()
+                with shared_lock:
+                    best_power = min(best_power, shared_best_power.value)
+                time_to_read_shared_var.append(time.time() - start_time2)
+
+                # check the power of this solution against the best power found among all working processes
+                power = define_power()
+                if power < best_power:
+                    bad_power =bad_power +1
+                    # freq_cnts[f] = freq_cnts[f] +1
+                    Fdag.not_viable()
+                    keep_evaluating_freq_seq = Fdag.next()
+                    continue
+                # if it reaches to this points, this is a so called 'potential solution'
+                potential_solutions = potential_solutions +1
+                # find the critical path and check whether the solution might be feasible.
+                # If so, divide the dag deadline proportionly to the weight of each node in the critical path
+                if not define_rel_deadlines(G): # TODO could have some variability in rel deadline assingment
+                    bad_deadline =bad_deadline +1
+                    # freq_cnts[f] = freq_cnts[f] +1
+                    Fdag.not_viable()
+                    keep_evaluating_freq_seq = Fdag.next()
+                    continue
+                # check the processor utilization constraint, i.e., each processor must have utilization <= 1.0
+                # if not pu_utilization(0):
+                if not check_utilization():
+                    bad_utilization =bad_utilization +1
+                    # freq_cnts[f] = freq_cnts[f] +1
+                    Fdag.not_viable()
+                    keep_evaluating_freq_seq = Fdag.next()
+                    continue
+            else:
+                start_time = time.time()
+                placement = [i["placement"] for i in islands]
+                placement_array = convert_placement_list_to_np_array(placement)
+                feasible = check_placement_mat(placement_array)
+                if not feasible:
+                    bad_solutions =bad_solutions +1
+                    # freq_cnts[f] = freq_cnts[f] +1
+                    Fdag.not_viable()
+                    keep_evaluating_freq_seq = Fdag.next()
+                    continue
+                elapsed_time = time.time() - start_time
+                mat_time.append(elapsed_time)
             elapsed_time = time.time() - start_time
-            mat_time.append(elapsed_time)
-        else:
-            start_time = time.time()
-            placement = [i["placement"] for i in islands]
-            placement_array = convert_placement_list_to_np_array(placement)
-            feasible = check_placement_mat(placement_array)
-            if not feasible:
-                bad_solutions =bad_solutions +1
-                # freq_cnts[f] = freq_cnts[f] +1
-                Fdag.not_viable()
-                keep_evaluating_freq_seq = Fdag.next()
-                continue
-            elapsed_time = time.time() - start_time
-            mat_time.append(elapsed_time)
-        # Since this solutions is feasible, check whether this was the lowest power found so far.
-        # If so, update the best solution
-        potential_solutions = potential_solutions +1
-        power = define_power()
-        if power < best_power:
+            execution_time_list.append(elapsed_time)
+            # If it reached this point, then this a new best solution. 
+            # Save this solution and shared the new power bound with the other working processes
             best_solutions = best_solutions +1
             best_power = power
             # save the best task placement onto the set of islands and the best frequency assignment
-            for i in range(n_islands):
-                best_task_placement[i] = list(l.islands[i])
+            # for i in range(n_islands):
+            #     best_task_placement[i] = list(l.islands[i])
+            best_task_placement = list(placement[:])
             best_freq_idx = list(freqs_per_island_idx)
-            print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
             if debug:
+                print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
                 print ('WCET and REL DEADLINE:')
                 for n in G.nodes:
                     print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
-        
-        keep_evaluating_freq_seq = Fdag.next()
-    Fdag.reinitiate_dag()
-    l_idx = l_idx +1
+            
+            keep_evaluating_freq_seq = Fdag.next()
+            # update the shared variable with the new power bound
+            start_time = time.time()
+            with shared_lock:
+                shared_best_power.value = best_power
+            elapsed_time = time.time() - start_time
+            time_to_write_shared_var.append(elapsed_time)
+        # reuse the frequency tree data structure for the next placement check
+        Fdag.reinitiate_dag()
+        # points to the next placement to be checked
+        current_placement += 1
 
-print("")
-if best_solutions > 0:
-    print ('best solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
-else:
-    print ('no feasiable solution was found :(')
+    print ('')
+    print ('Performance counters/timers of process:', mp.current_process().name)
+    print ('avg main execution time:',sum(execution_time_list)/float(n_placements))
+    print ('avg time wating for reading the shared var:',sum(time_to_read_shared_var)/float(evaluated_solutions))
+    print ('avg time wating for writing the shared var:',sum(time_to_write_shared_var)/float(best_solutions))
+    
+    print ('evaluated_solutions',evaluated_solutions)
+    print ('potential_solutions',potential_solutions)
+    print ('best_solutions', best_solutions)
+    print ('bad_power', bad_power)
+    print ('bad_deadline', bad_deadline)
+    print ('bad_utilization', bad_utilization)
+    # print ('minizinc:', minizinc_cnt)
 
-print("")
-print ('terminate counters:')
-for idx,i in enumerate(terminate_counters):
-    if i[0] == 0:
-        print (terminate_counter_names[idx],i)
+    # freq_cnts = Fdag.get_counters()
+    # sum_freqs = sum([i[0]+i[1] for i in freq_cnts])
+    # print ('freq histogram (unfeasible candidates):')
+    # for i in range(len(freq_cnts)):
+    #     if freq_cnts[i] != 0 :
+    #         print ("{:.2f}".format(freq_cnts[i][0]/sum_freqs), ", {:.2f}".format(freq_cnts[i][1]/sum_freqs), freq_seq[i])
+
+    print ('')
+    print ('Process:', mp.current_process().name, 'found a solution with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
+    return (best_power, best_task_placement, best_freq_idx)
+
+
+
+def main():
+
+    n_threads = 1
+    max_placement_per_worker = 10
+    # n_islands = 2
+    n_tasks = len(G.nodes)
+
+    # the size of the entire search space of 'n_tasks' placements onto 'n_islands'
+    total_task_placements = n_islands**n_tasks
+    # it represents how many work packages i can divide the entire search space (total_task_placements)
+    # of placements considering a parallelism of 'n_threads'
+    n = 1
+    while (n_threads > n_islands**n):
+        n=n+1
+    search_space_subdivisions = n_islands**n
+    # the size of each work package, i.e., the number of placements to be checked by work package
+    placements_per_workload = int (math.ceil(float(total_task_placements) / float(search_space_subdivisions)))
+    print ('total_task_placements:',total_task_placements)
+    print ('search_space_subdivisions:', search_space_subdivisions)
+    print ('placements_per_workload:', placements_per_workload)
+
+    # shared variable used to keep the the processes updated related to the lowest power consumption found so far.
+    # this is used to bound the search space
+    manager = mp.Manager()
+    # 'd' means double precision, 'i' is integer
+    shared_best_power = manager.Value('d', 999999.0)
+    shared_lock = mp.Lock()
+
+    # Generate the data structure sent to the pool of processes, i.e., the initial placement and 
+    # how many placements each work package must check. 
+    # The way it's calculated, all work package should have the same size, regardeless 
+    # n_threads, n_islands, n_tasks
+    placement_cnt = 0
+    placement_setup_list = []
+    while (placement_cnt < total_task_placements):
+        # initial placement id and the number of placements to be generated from this initial one
+        placement_setup_list.append((placement_cnt,min(placements_per_workload,max_placement_per_worker)))
+        placement_cnt += placements_per_workload
+    print ('work packages:', placement_setup_list)
+
+    # Alternatively, you could use Pool.imap_unordered, which starts returning 
+    # results as soon as they are available instead of waiting until everything is finished. So you could tally the amount of returned results and use that to update the progress bar.
+    # source: https://devdreamz.com/question/633149-how-to-use-values-in-a-multiprocessing-pool-with-python
+    best_placement_list = []
+    pool =  mp.Pool(initializer=init_globals, processes=n_threads, initargs=(shared_best_power,shared_lock,))
+    # result_list = pool.map(search_best_placement, placement_setup_list)
+    for best_placement in pool.map(search_best_placement, placement_setup_list):
+        best_placement_list.append(best_placement)
+    pool.close()
+    pool.join()
+
+    # testing the shared variable
+    with shared_lock:
+        print ('shared power:', shared_best_power.value)    
+
+    # the final results
+    print("")
+    best_placement_list.sort(key=lambda y: y[0])
+    print ('The best solutions:')
+    for idx,i in enumerate(best_placement_list):
+        print('Solution:',idx)
+        print (' - power:',"{:.2f}".format(i[0]))
+        print (' - placement:', i[1])
+        print (' - frequencies:',i[2])
+
+    print("")
+    if len(best_placement_list) > 0:
+        print('Best solution:')
+        print (' - power:',"{:.2f}".format(best_placement_list[0][0]))
+        for i in range(n_islands):
+            print (' - island:', i, 'placement:', best_placement_list[0][1][i], 'frequency:',islands[i]['freqs'][best_placement_list[0][2][i]])
     else:
-        print (terminate_counter_names[idx], i , i[1]/float(i[0]))
+        print ('no feasiable solution was found :(')
 
-print("")
-print ('total candidates evaluated', evaluated_solutions, 
-    'bad candidates', bad_solutions, "({:.4f}%)".format(float(bad_solutions)/float(evaluated_solutions)),
-    'potential solution', potential_solutions, "({:.4f}%)".format(float(potential_solutions)/float(evaluated_solutions)),
-    'best solutions', best_solutions, "({:.4f}%)".format(float(best_solutions)/float(evaluated_solutions)))
-freq_cnts = Fdag.get_counters()
-sum_freqs = sum([i[0]+i[1] for i in freq_cnts])
-print ('freq histogram (unfeasible candidates):')
-for i in range(len(freq_cnts)):
-    if freq_cnts[i] != 0 :
-        print ("{:.2f}".format(freq_cnts[i][0]/sum_freqs), ", {:.2f}".format(freq_cnts[i][1]/sum_freqs), freq_seq[i])
 
-print ('mat time:',sum(mat_time)/float(l_idx))
-print ('minizinc:', minizinc_cnt)
+if __name__ == '__main__':
+    main()
