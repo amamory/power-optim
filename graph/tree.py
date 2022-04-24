@@ -33,55 +33,6 @@ class Node:
         self.islands = [[] for i in range(nary)]
         self.children = [None]*nary
 
-class Tree:
-    def __init__(self, intial_placement, height, nary=2):
-        self.root = Node(0,None,nary)
-        self.root.islands = list(intial_placement[:])
-        self.current_leaf = None
-        self.tree_height = height - sum([len(i) for i in intial_placement])
-        self.nary = nary
-        self.node_id = 0
-        # grow the tree
-        self._grow()
-        self._get_first_leaf()
-    
-    def _grow(self):
-        self._generate_node(self.nary, self.tree_height, 0, self.root)
-
-    def _get_first_leaf(self):
-        node = self.root
-        # reach the left hand side of the tree
-        while (node.children[0] != None):
-            node = node.children[0]
-        self.current_leaf = node
-
-    def get_next_leaf(self,node) -> None:
-        leaf =  self.current_leaf
-        # if all tasks are in the right hand side
-        if len(leaf.children[-1]) == self.tree_height:
-            return None
-        else:
-            self.current_leaf = self.current_leaf.parent
-            return self.current_leaf
-
-    # def get_current_leaf(self):
-    #     return self.current_leaf
-
-    def _generate_node(self, ary, height, branch, parent) -> Node:
-        self.node_id += 1
-        node = Node(self.node_id, parent, ary)
-        if branch is not None:
-            # only the root must be branch==None
-            # copy the island fro the parent and add another task
-            node.islands = [x[:] for x in parent.islands]
-            node.islands[branch].append(height-1)
-        if height == 1:
-            print (node.data, node.islands)
-            return node
-        for i in range(ary):
-            node.children[i] = self._generate_node(ary, height-1, i, node)
-        return node
-
 # number of nodes of the tree
 node_id = 0
 # the resulting list of leafs

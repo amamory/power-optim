@@ -19,6 +19,12 @@ tasks:
     wcet_ref_ns: 3
   - wcet_ref: 10 
     wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
+  - wcet_ref: 80 
+    wcet_ref_ns: 3
+  - wcet_ref: 10 
+    wcet_ref_ns: 3
 dags:
   - activation_period: 100
     deadline: 100
@@ -40,4 +46,12 @@ dags:
       [6,9],
       [7,9],
       [8,9]
+     ]
+  - activation_period: 100
+    deadline: 100
+    ref_freq: 1000     
+    edge_list:
+     [
+      [10,11],
+      [11,12]
      ]
