@@ -152,7 +152,7 @@ n_islands = len(islands)
 n_nodes = sum([len(G.nodes) for G in dags])
 
 # debug mode
-debug = True
+debug = False
 
 # used to account the DAG precedence constraint into PU utilization calculation
 # the first and last nodes are excluded
@@ -165,6 +165,9 @@ unrelated = [
     [ 1, 2, 3 ], 
     [ 3, 4 ]
 ]
+
+# TODO sort 'unrelated' by deacreasing wcet assuming the highest frequency of the high capacity island.
+# This will increase the probability of find failing set in the first iterations in function 'check_utilization'
 
 print ("unrelated sets:")
 for u in unrelated:
@@ -272,7 +275,7 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
             # set2 = set(i2['placement'])
             set1 = set(i1)
             set2 = set(i2)
-            inter = set1.intersection(set2) 
+            inter = set1.intersection(set2)
             if len(inter) > 0:
                 print ('ERROR: task(s) ', inter, 'where found in islands',idx1,'and',idx2)
                 sys.exit(1)
@@ -464,8 +467,8 @@ def define_path_wcet(H) -> list():
 # the critical path and the relative deadlines could be pre-processed only once at startup
 # TODO replace it by Tommaso's function
 # TODO update it to work with multiple DAGs
-# def define_rel_deadlines(dags, placement, freqs_per_island_idx) -> bool:
-def define_rel_deadlines(dags) -> bool:    
+# freqs_per_island_idx used only for debugging purposes
+def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:    
     # main steps:   
     # 1) assign path wcet to each node - compexity O(n!)
     # 2) assign deadline to all nodes proportionally to its wcet and path wcet
@@ -484,6 +487,8 @@ def define_rel_deadlines(dags) -> bool:
         ############################
         path_wcet_list = define_path_wcet(H)
         if not path_wcet_list:
+            if debug:
+                print ('relative deadline failed with freqs',freqs_per_island_idx)
             # an empty list, which means dag deadline is not feasible
             return False
         #print (path_wcet_list)
@@ -530,6 +535,7 @@ def define_rel_deadlines(dags) -> bool:
             if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
                 if debug:
                     print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
+                    print ('relative deadline failed with freqs',freqs_per_island_idx)
                 # temp_tuple = (terminate_counters[3][0]+1,0.0)
                 # terminate_counters[3] = temp_tuple
                 return False
@@ -692,55 +698,69 @@ def optimal_placement(i, freq_seq) -> bool:
 # TODO update it to work with multiple DAGs
 def check_utilization(dags, placement, freqs_per_island_idx) -> bool:
     # for each island, run the placement heuristic and, if required, the exact solution
-    temp_solution = []
+    # temp_solution = []
     # get the initial and last tasks of each DAG
-    first_tasks = [G.graph['first_task'] for G in dags]
-    last_tasks = [G.graph['last_task'] for G in dags]
-    first_and_lst_tasks = first_tasks + last_tasks
-    # for u in unrelated:
-        # u_set = set(u)
-    for idx, i in enumerate(islands):
-        # p_set = set(placement[idx])
-        # to keep track of worst_fit heuristic with good data locality
-        utilization_per_pu = [0.0]*i['n_pus']
-        task_placement = [[] for aux in range(i['n_pus'])]
-        # remove the initial and last nodes of the tasks placed on this island, not matter the DAG
-        task_set = [t for t in placement[idx] if t not in first_and_lst_tasks]
-        # have to calculate the task utilization upfront in order to sort the tasks by utilization,
-        # increasing the efficienty of the worst-fit heurisitic, reducing the need to run the optimal_placement function
-        task_utilization = []
-        # fill the list of tuple (task_utilization, task id)
-        for t in task_set:
-            # find to which DAG this task belongs to
-            G = None
-            for dag in dags:
-                if t in dag.nodes():
-                    G = dag
-                    break
-            task_utilization.append((float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']), t))
-        # the longest tasks are placed first
-        task_utilization.sort(key=lambda y: y[0], reverse=True)
-        for t in task_utilization:
-            # get the PUs with minimal utilization
-            pu = utilization_per_pu.index(min(utilization_per_pu))
-            # get the utilization for the current task t
-            #pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
-            #print (t, pu, pu_utilization)
-            # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
-            if utilization_per_pu[pu] + t[0] > 1.0:
-                # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
-                # return optimal_placement(idx,freqs_per_island_idx)
-                if debug:
-                    print ('WARNING: utilization constraint failed',task_utilization)
-                return False
-                # task_placement = []
-                # if len(task_placement) == 0:
-                #     return False
-                # break
-            else:
-                utilization_per_pu[pu] = utilization_per_pu[pu] + t[0]
-                task_placement[pu].append(t[1])
-        temp_solution.append((utilization_per_pu,task_placement))
+    # first_tasks = [G.graph['first_task'] for G in dags]
+    # last_tasks = [G.graph['last_task'] for G in dags]
+    # first_and_last_tasks = first_tasks + last_tasks
+    # The 'unrelated' set represents the list of tasks that could be run concurently in a PU
+    # unrelated = [
+    # [ 6, 7, 8 ], 
+    # [ 3, 6 ], 
+    # [ 5, 6, 8 ], 
+    # [ 1, 5 ], 
+    # [ 4, 5 ], 
+    # [ 1, 2, 3 ], 
+    # [ 3, 4 ]
+    # ]
+    for u in unrelated:
+        u_set = set(u)
+        for idx, i in enumerate(islands):
+            p_set = set(placement[idx])
+            u_set_in_island = u_set.intersection(p_set)
+            if len(u_set_in_island)==0:
+                continue
+            # for ui in u_set_in_island:
+            # to keep track of worst_fit heuristic with good data locality
+            utilization_per_pu = [0.0]*i['n_pus']
+            task_placement = [[] for aux in range(i['n_pus'])]
+            # remove the initial and last nodes of the tasks placed on this island, not matter the DAG
+            # task_set = [t for t in placement[idx] if t not in first_and_last_tasks]
+            # have to calculate the task utilization upfront in order to sort the tasks by utilization,
+            # increasing the efficienty of the worst-fit heurisitic, reducing the need to run the optimal_placement function
+            task_utilization = []
+            # fill the list of tuple (task_utilization, task id)
+            for t in u_set_in_island:
+                # find to which DAG this task belongs to
+                G = None
+                for dag in dags:
+                    if t in dag.nodes():
+                        G = dag
+                        break
+                task_utilization.append((float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']), t))
+            # the longest tasks are placed first
+            task_utilization.sort(key=lambda y: y[0], reverse=True)
+            for t in task_utilization:
+                # get the PUs with minimal utilization
+                pu = utilization_per_pu.index(min(utilization_per_pu))
+                # get the utilization for the current task t
+                #pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
+                #print (t, pu, pu_utilization)
+                # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
+                if utilization_per_pu[pu] + t[0] > 1.0:
+                    # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
+                    # return optimal_placement(idx,freqs_per_island_idx)
+                    if debug:
+                        print ('WARNING: utilization constraint failed',freqs_per_island_idx, task_utilization)
+                    return False
+                    # task_placement = []
+                    # if len(task_placement) == 0:
+                    #     return False
+                    # break
+                else:
+                    utilization_per_pu[pu] = utilization_per_pu[pu] + t[0]
+                    task_placement[pu].append(t[1])
+            # temp_solution.append((utilization_per_pu,task_placement))
     # the solution is copied back to the islands data structure only if the task placement is feasible for all islands
     # TODO is it required to copy the solution back to the islands list ?
     # perhaps the best is to find the best solutions, and then calculate it again
@@ -1166,7 +1186,7 @@ def search_best_placement(placement_setup) -> tuple():
                 potential_solutions = potential_solutions +1
                 # find the critical path and check whether the solution might be feasible.
                 # If so, divide the dag deadline proportionly to the weight of each node in the critical path
-                if not define_rel_deadlines(dags): # TODO could have some variability in rel deadline assingment
+                if not define_rel_deadlines(dags,freqs_per_island_idx): # TODO could have some variability in rel deadline assingment
                     bad_deadline =bad_deadline +1
                     # freq_cnts[f] = freq_cnts[f] +1
                     Fdag.not_viable()
@@ -1207,8 +1227,9 @@ def search_best_placement(placement_setup) -> tuple():
             if debug:
                 print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
                 print ('WCET and REL DEADLINE:')
-                for n in G.nodes:
-                    print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
+                for G in dags:
+                    for n in G.nodes:
+                        print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
             
             keep_evaluating_freq_seq = Fdag.next()
             # update the shared variable with the new power bound
@@ -1256,8 +1277,8 @@ def search_best_placement(placement_setup) -> tuple():
 
 def main():
 
-    n_threads = 1
-    max_placement_per_worker = 100
+    n_threads = 6
+    max_placement_per_worker = 99999999
     # n_islands = 2
     n_tasks = len(G.nodes)
 
@@ -1311,20 +1332,20 @@ def main():
         print ('shared power:', shared_best_power.value)    
 
     # remove the empty tuples, which means that that work package was not abble to find a suitable solution
-
+    best_placement_list = [t for t in best_placement_list if t]
 
     # the final results
     print("")
-    best_placement_list.sort(key=lambda y: y[0])
-    print ('The best solutions:')
-    for idx,i in enumerate(best_placement_list):
-        print('Solution:',idx)
-        print (' - power:',"{:.2f}".format(i[0]))
-        print (' - placement:', i[1])
-        print (' - frequencies:',i[2])
-
-    print("")
     if len(best_placement_list) > 0:
+        best_placement_list.sort(key=lambda y: y[0])
+        print ('The best solutions:')
+        for idx,i in enumerate(best_placement_list):
+            print('Solution:',idx)
+            print (' - power:',"{:.2f}".format(i[0]))
+            print (' - placement:', i[1])
+            print (' - frequencies:',i[2])
+
+        print("")
         print('Best solution:')
         print (' - power:',"{:.2f}".format(best_placement_list[0][0]))
         for i in range(n_islands):
