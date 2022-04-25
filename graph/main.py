@@ -146,7 +146,7 @@ n_freqs_per_island = [len(i['freqs']) for i in islands]
 n_islands = len(islands)
 # global index to the current freq in each island
 # initialize them to the minimal freq, which is ALWAYS the first one
-freqs_per_island_idx = [0]* n_islands
+# freqs_per_island_idx = [0]* n_islands
 
 # get the total number of nodes of all dags
 n_nodes = sum([len(G.nodes) for G in dags])
@@ -185,10 +185,11 @@ for G in dags:
 
 # return power consumed by the island i
 # TODO try a matrix-based version of this function
-def island_power(i) -> float:
+def island_power(i,dags, placement, freqs_per_island_idx) -> float:
     # get the index of the tasks deployed in island i
     # assumes the tasks where already placed on the islands
-    deployed_tasks = [x for x in islands[i]['placement']] 
+    # deployed_tasks = [x for x in islands[i]['placement']] 
+    deployed_tasks = list(placement[i])
     
     # get the assigned freq and scales it down linearly with the the island max frequency
     # TODO read the power from a matrix
@@ -206,6 +207,7 @@ def island_power(i) -> float:
                 activation_period = G.graph['activation_period']
                 # assumes that wcet was calculated previously
                 wcet = G.nodes[t]['wcet']
+                break
         if activation_period != 0:
             utilization = utilization + (float(wcet)/float(activation_period))
         else:
@@ -219,10 +221,10 @@ def island_power(i) -> float:
 
 
 # sum up the power of each island based on current task placement and island frequency
-def define_power() ->  float:
+def define_power(dags, placement, freqs_per_island_idx) ->  float:
     total_power = 0.0
     for i in range(n_islands):
-        total_power = total_power +  island_power(i)
+        total_power = total_power +  island_power(i,dags, placement, freqs_per_island_idx)
     return total_power
 
 # # TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
@@ -256,17 +258,20 @@ def define_power() ->  float:
 #     reversed_freq_seq = list(reversed(freq_seq))
 #     return reversed_freq_seq
 
-# define the wcet of each task based on in which island the task is placed
-def define_wcet() -> None:
+# Define the wcet of each task based on in which island the task is placed.
+# List of dags as input parameter
+def define_wcet(dags, placement, freqs_per_island_idx) -> None:
     # wcet for all tasks assigned to 0
     for G in dags:
         for t in G.nodes:
             G.nodes[t]["wcet"] = 0
     # cannot find a task in multiple island
-    for idx1,i1 in enumerate(islands[:-1]):
-        for idx2, i2 in enumerate(islands[idx1+1:]):
-            set1 = set(i1['placement'])
-            set2 = set(i2['placement'])
+    for idx1,i1 in enumerate(placement[:-1]):
+        for idx2, i2 in enumerate(placement[idx1+1:]):
+            # set1 = set(i1['placement'])
+            # set2 = set(i2['placement'])
+            set1 = set(i1)
+            set2 = set(i2)
             inter = set1.intersection(set2) 
             if len(inter) > 0:
                 print ('ERROR: task(s) ', inter, 'where found in islands',idx1,'and',idx2)
@@ -279,12 +284,14 @@ def define_wcet() -> None:
         # get the frequency assigned to the island i
         f = i['freqs'][freqs_per_island_idx[idx]]
         capacity = i['capacity']
-        for t in i['placement']:
+        # for t in i['placement']:
+        for t in placement[idx]:
             # find to which DAG this task belongs to
             G = None
             for dag in dags:
                 if t in dag.nodes():
                     G = dag
+                    break
             wcet_ref_ns = G.nodes[t]['wcet_ref_ns']
             wcet_ref = G.nodes[t]['wcet_ref']
             wcet = wcet_ref_ns + float((wcet_ref-wcet_ref_ns)/f * f_ref)/float(capacity)
@@ -296,9 +303,9 @@ def define_wcet() -> None:
                 print ('ERROR: wcet for task', t, 'not defined')
                 sys.exit(1)
 
-    # the 1st and last nodes have no computation
-    G.nodes[G.graph['first_task']]["wcet"] = 0
-    G.nodes[G.graph['last_task']]["wcet"] = 0
+        # the 1st and last nodes have no computation
+        G.nodes[G.graph['first_task']]["wcet"] = 0
+        G.nodes[G.graph['last_task']]["wcet"] = 0
 
 # assign path wcet to each node
 # TODO the underlaying algorithm is graph-related search
@@ -681,7 +688,7 @@ def optimal_placement(i, freq_seq) -> bool:
 # solver to confirm it. Hopefully, the heuristic will be sufficient most of the times.
 # Returns false if any PU on any island exeeds the utilization threshold.
 # TODO update it to work with multiple DAGs
-def check_utilization() -> bool:
+def check_utilization(freqs_per_island_idx) -> bool:
     # for each island, run the placement heuristic and, if required, the exact solution
     temp_solution = []
     first_task = G.graph['first_task']
@@ -1043,10 +1050,12 @@ def search_best_placement(placement_setup) -> tuple():
     print ('\nStarting work load:\n', ' - initial placement:', placement_setup[0], '\n  - # placements:', placement_setup[1], '\n  - process:', mp.current_process().name,mp.Process().name)
     current_placement = placement_setup[0]
     n_placements = placement_setup[1]
+    # deepcopy the list of DAGs
+    dags = []
+    for i in placement_setup[2]:
+        dags.append(i.copy())
 
-    # TODO ready the sw yaml and copy the dag
-
-    n_tasks = len(G.nodes)
+    n_tasks = sum([len(G.nodes) for G in dags])
 
     # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
     Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
@@ -1110,7 +1119,7 @@ def search_best_placement(placement_setup) -> tuple():
             start_time = time.time()
             if True:
                 # define the wcet for each task based on which island each task is placed and the freq for each island
-                define_wcet()
+                define_wcet(dags, placement, freqs_per_island_idx)
 
                 # wait for the updated power bound via the shared variable 
                 # TODO no need to read it every iteration
@@ -1120,8 +1129,8 @@ def search_best_placement(placement_setup) -> tuple():
                 time_to_read_shared_var.append(time.time() - start_time2)
 
                 # check the power of this solution against the best power found among all working processes
-                power = define_power()
-                if power < best_power:
+                power = define_power(dags, placement, freqs_per_island_idx)
+                if power >= best_power:
                     bad_power =bad_power +1
                     # freq_cnts[f] = freq_cnts[f] +1
                     Fdag.not_viable()
@@ -1139,7 +1148,7 @@ def search_best_placement(placement_setup) -> tuple():
                     continue
                 # check the processor utilization constraint, i.e., each processor must have utilization <= 1.0
                 # if not pu_utilization(0):
-                if not check_utilization():
+                if not check_utilization(freqs_per_island_idx):
                     bad_utilization =bad_utilization +1
                     # freq_cnts[f] = freq_cnts[f] +1
                     Fdag.not_viable()
@@ -1239,18 +1248,18 @@ def main():
     # this is used to bound the search space
     manager = mp.Manager()
     # 'd' means double precision, 'i' is integer
-    shared_best_power = manager.Value('d', 999999.0)
+    shared_best_power = manager.Value('d', 99999999.0)
     shared_lock = mp.Lock()
 
     # Generate the data structure sent to the pool of processes, i.e., the initial placement and 
-    # how many placements each work package must check. 
+    # how many placements each work package must check, and the list of DAGs. 
     # The way it's calculated, all work package should have the same size, regardeless 
     # n_threads, n_islands, n_tasks
     placement_cnt = 0
     placement_setup_list = []
     while (placement_cnt < total_task_placements):
         # initial placement id and the number of placements to be generated from this initial one
-        placement_setup_list.append((placement_cnt,min(placements_per_workload,max_placement_per_worker)))
+        placement_setup_list.append((placement_cnt, min(placements_per_workload,max_placement_per_worker), dags))
         placement_cnt += placements_per_workload
     print ('work packages:', placement_setup_list)
 
