@@ -1079,8 +1079,20 @@ def init_globals(counter, l):
     shared_best_power = counter
     shared_lock = l
 
-# converts an integer in to a task mapping, i.e., a list of list
-def get_mapping(curr_mapping, n_islands, n_tasks) -> list():
+# It converts an interget into a list of list representing the actual task mapping onto islands.
+# Limitation: supports up to 32 tasks assuming a 32-bit int encodes the task mapping.
+# It is based on a numerical system of base 'n_islands' which encodes a task mapping onto islands.
+# For example:
+# - Assuming 2 islands, i.e., a binary numerical system, the numbers:
+#    - 00000:  says that all 5 tasks are mapped onto island 0
+#    - 00001:  says that the 1st task is mapped onto island 1 and the rest onto island 0
+#    - 00101:  says that the 1st and 3rd tasks are mapped onto island 1 and the rest onto island 0
+# - Assuming 3 islands, i.e., a ternary numerical system, the numbers:
+#    - 00000:  says that all 5 tasks are mapped onto island 0
+#    - 00001:  says that 1st task is mapped onto island 1 and the rest onto island 0
+#    - 00002:  says that 1st task is mapped onto island 2 and the rest onto island 0
+#    - 00102:  says that 1st task is mapped onto island 2, the 3rd task onto island 1, and the rest onto island 0
+def decode_mapping(curr_mapping, n_islands, n_tasks) -> list():
     mapping = [[] for i in range(n_islands)]
     island = 0
     # compute island onto which I'm mapping the i-th task
@@ -1088,6 +1100,31 @@ def get_mapping(curr_mapping, n_islands, n_tasks) -> list():
         island = int(curr_mapping / (n_islands**(i)) % n_islands)
         mapping[island].append(i)
     return mapping
+
+# This function is divided into two parts:
+#  1) the mapping decoding based on a numerical system of 'n_islands' base
+#  2) the mapping adjustment to discard the dummy tasks
+def get_mapping(dags, curr_mapping, n_islands, n_tasks) -> list():
+    # 1) the mapping decoding based on a numerical system of 'n_islands' base
+    placement = decode_mapping(curr_mapping, n_islands, n_tasks)
+    # 2) the mapping adjustment to discard the dummy tasks
+    dummy_tasks = [dag.graph['first_task'] for dag in dags]
+    dummy_tasks += [dag.graph['last_task'] for dag in dags]
+    dummy_tasks.sort()
+    # for i in placement:
+    #     i.sort()
+    # the idea is that, for each dummy task, increment all subsequent tasks
+    # such that the final indexes in 'placement' points to the correct actual tasks,
+    # skipping the dummy tasks
+    for d in dummy_tasks:
+        for i in placement:
+            for idx,t in enumerate(i):
+                if t >= d:
+                    # # all subsequent indexes are incremented
+                    # for idx2,not_used in enumerate(i[idx:]):
+                    i[idx] += 1
+
+    return placement
 
 # Main function that searches for the best placement found by this working process.
 # Return format (best_power, best_task_placement, best_freq_idx).
@@ -1101,7 +1138,8 @@ def search_best_placement(placement_setup) -> tuple():
     for i in placement_setup[2]:
         dags.append(i.copy())
 
-    n_tasks = sum([len(G.nodes) for G in dags])
+    # count only the actual tasks
+    n_tasks = sum([len(G.nodes) for G in dags]) - (len(dags)*2)
 
     # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
     Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
@@ -1135,7 +1173,7 @@ def search_best_placement(placement_setup) -> tuple():
 
     print("")
     for i in range(n_placements):
-        placement = get_mapping(current_placement, n_islands, n_tasks)
+        placement = get_mapping(dags, current_placement, n_islands, n_tasks)
         # assume the following task placement onto the set of islands
         # for i in range(n_islands):
         #     islands[i]["placement"] = l.islands[i]
@@ -1277,10 +1315,20 @@ def search_best_placement(placement_setup) -> tuple():
 
 def main():
 
-    n_threads = 6
+    # TODO: read parameters
+    # TODO: encapsulate initialization
+
+    n_threads = 1
     max_placement_per_worker = 99999999
-    # n_islands = 2
-    n_tasks = len(G.nodes)
+    max_placement_per_worker = 10
+    # 'nodes' is the set of all tasks plus the dummy tasks initial and final nodes of a DAG
+    # 'tasks' represent only actual tasks, without the initial and final task of each DAG
+    n_nodes = sum([len(G.nodes) for G in dags])
+    n_tasks = n_nodes - (len(dags)*2)
+
+    if n_tasks > 32:
+        print ('ERROR: Currently up to 32 tasks are supported')
+        sys.exit(1)
 
     # the size of the entire search space of 'n_tasks' placements onto 'n_islands'
     total_task_placements = n_islands**n_tasks
@@ -1314,7 +1362,7 @@ def main():
         # initial placement id and the number of placements to be generated from this initial one
         placement_setup_list.append((placement_cnt, min(placements_per_workload,max_placement_per_worker), dags))
         placement_cnt += placements_per_workload
-    print ('work packages:', placement_setup_list[0],',',placement_setup_list[1])
+    print ('work packages:', search_space_subdivisions,'size:', min(placements_per_workload,max_placement_per_worker))
 
     # Alternatively, you could use Pool.imap_unordered, which starts returning 
     # results as soon as they are available instead of waiting until everything is finished. So you could tally the amount of returned results and use that to update the progress bar.
