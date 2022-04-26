@@ -10,200 +10,232 @@ import numpy as np
 import math
 import time
 import yaml
-
+import argparse
 # libs
 import freq_dag
 
 
+def argument_parsing():
+    # parsing arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('sw_file', type=str, 
+                        help='YAML software definition file.'
+                        )
+    parser.add_argument('hw_file', type=str, 
+                        help='YAML hardware definition file.'
+                        )
+    # by default, it uses 80% of the cores
+    cores = int(math.floor(mp.cpu_count() * 0.8))
+    parser.add_argument('-p','--processes', type=int, default=cores,
+                        dest='processes', help='Number of working processes.'
+                        )
+    parser.add_argument('-i','--iter', type=int, default=99999999,
+                        dest='iter', help='Max number of iteration executed by a working process.'
+                        )
+    parser.add_argument('-d','--debug', dest='debug', action='store_true',
+                        help='Debug mode.'
+                        )
+    args = parser.parse_args()
 
-
-sw = None
-with open('ex1-sw.yaml') as file:
-    try:
-        sw = yaml.safe_load(file)   
-    except yaml.YAMLError as exc:
-        print(exc)
-
-# load the task definition
-print ('TASKs:')
-for idx, i in enumerate(sw['tasks']):
-    print ('Task:',idx)
-    print (' -',i)
-
-# load the DAG definition
-print ('')
-print ('DAGs:')
-# a list of nertowx dags
-dags = []
-for idx, i in enumerate(sw['dags']):
-    G = None
-    print ('DAG:',idx)
-    # DAG edges
-    print (' - edges:',len(i['edge_list']))
-    edge_list = []
-    for e in i['edge_list']:
-        print("   -", tuple(e))
-        edge_list.append(tuple(e))
-    sources = [x[0] for x in edge_list]
-    targets = [x[1] for x in edge_list]
-    weights = [0 for x in range(len(edge_list))] # defined in runtime
-    linkData = pd.DataFrame({'source' : sources,
-                    'target' : targets,
-                    'weight' :weights})
-
-    # DAG nodes
-    # use the set to get unique node ids
-    node_names = {e for l in edge_list for e in l}
-    # then get ride of the set and transform it into a array
-    node_names = list(node_names)
-    print (' - node names:',node_names)
-    wcet = [sw['tasks'][t]['wcet_ref'] for t in range(len(sw['tasks'])) if t in node_names]
-    wcet_ns = [sw['tasks'][t]['wcet_ref_ns'] for t in range(len(sw['tasks'])) if t in node_names]
-    zeros = [0]*len(node_names)
-    nodeData = pd.DataFrame({'name' : node_names,
-                    'wcet_ref' : wcet,     # wcet at the reference freq
-                    'wcet_ref_ns' : wcet_ns, # non scalable part of the wcet
-                    'rel_deadline': zeros, # defined in runtime
-                    'wcet': zeros # defined in runtime
-                    })
-    G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
-    nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
-    # transform the graph into adjacency_matrix for better printing
-    # sparse_adj_mat = nx.adjacency_matrix(G)
-    # array_adj_mat = sparse_adj_mat.toarray('C')
-    # print (array_adj_mat)
-
-    # other DAG attributes
-    print (' - activation_period:',i['activation_period'])
-    print (' - deadline:',i['deadline'])
-    print (' - ref_freq:',i['ref_freq'])
-    G.graph['activation_period'] = i['activation_period']
-    G.graph['deadline'] = i['deadline']
-    # the reference freq is the freq used to characterize this application
-    G.graph['ref_freq'] = i['ref_freq']
-    # when it's deadling with multiple DAGs, this will find the first and last nodes of a DAG
-    last_task = [t for t in G.nodes if len(list(G.successors(t))) == 0]
-    first_task = [t for t in G.nodes if len(list(G.predecessors(t))) == 0]
-    if len(first_task) != 1:
-        print('ERROR: invalid DAG with multiple starting nodes')
+    if not os.path.isfile(args.sw_file):
+        print ("ERROR: File %s not found" % (args.sw_file))
         sys.exit(1)
-    if len(last_task) != 1:
-        print('ERROR: invalid DAG with multiple ending nodes')
+    if not os.path.isfile(args.hw_file):
+        print ("ERROR: File %s not found" % (args.hw_file))
         sys.exit(1)
-    # the dummy tasks representing the start and finish nodes
-    G.graph['first_task'] =  first_task[0]
-    G.graph['last_task'] = last_task[0]
-    # the 1st and last tasks must have, respectively, the lowest and the highest node index
-    if G.graph['first_task'] != min(G.nodes):
-        print('ERROR: the 1st task does not have the lowest index of the DAG')
+    
+    return args
+
+# Loads the software definition
+# Returns the list of NetworkX DAGs built from the sw YAML file
+def load_sw(filename) -> list():
+
+    # main list with all the DAGs defined in the sw YAML file
+    dags = []
+    # the YAML file
+    sw = None
+    with open(filename) as file:
+        try:
+            sw = yaml.safe_load(file)   
+        except yaml.YAMLError as exc:
+            print(exc)
+
+    # load the task definition
+    print ('TASKs:')
+    for idx, i in enumerate(sw['tasks']):
+        print ('Task:',idx)
+        print (' -',i)
+
+    # load the DAG definition
+    print ('')
+    print ('DAGs:')
+    for idx, i in enumerate(sw['dags']):
+        G = None
+        print ('DAG:',idx)
+        # DAG edges
+        print (' - edges:',len(i['edge_list']))
+        edge_list = []
+        for e in i['edge_list']:
+            print("   -", tuple(e))
+            edge_list.append(tuple(e))
+        sources = [x[0] for x in edge_list]
+        targets = [x[1] for x in edge_list]
+        weights = [0 for x in range(len(edge_list))] # defined in runtime
+        linkData = pd.DataFrame({'source' : sources,
+                        'target' : targets,
+                        'weight' :weights})
+
+        # DAG nodes
+        # use the set to get unique node ids
+        node_names = {e for l in edge_list for e in l}
+        # then get ride of the set and transform it into a array
+        node_names = list(node_names)
+        print (' - node names:',node_names)
+        wcet = [sw['tasks'][t]['wcet_ref'] for t in range(len(sw['tasks'])) if t in node_names]
+        wcet_ns = [sw['tasks'][t]['wcet_ref_ns'] for t in range(len(sw['tasks'])) if t in node_names]
+        zeros = [0]*len(node_names)
+        nodeData = pd.DataFrame({'name' : node_names,
+                        'wcet_ref' : wcet,     # wcet at the reference freq
+                        'wcet_ref_ns' : wcet_ns, # non scalable part of the wcet
+                        'rel_deadline': zeros, # defined in runtime
+                        'wcet': zeros # defined in runtime
+                        })
+        G = nx.from_pandas_edgelist(linkData, 'source', 'target', True, nx.DiGraph())
+        nx.set_node_attributes(G, nodeData.set_index('name').to_dict('index'))
+        # transform the graph into adjacency_matrix for better printing
+        # sparse_adj_mat = nx.adjacency_matrix(G)
+        # array_adj_mat = sparse_adj_mat.toarray('C')
+        # print (array_adj_mat)
+
+        # other DAG attributes
+        print (' - activation_period:',i['activation_period'])
+        print (' - deadline:',i['deadline'])
+        print (' - ref_freq:',i['ref_freq'])
+        G.graph['activation_period'] = i['activation_period']
+        G.graph['deadline'] = i['deadline']
+        # the reference freq is the freq used to characterize this application
+        G.graph['ref_freq'] = i['ref_freq']
+        # when it's deadling with multiple DAGs, this will find the first and last nodes of a DAG
+        last_task = [t for t in G.nodes if len(list(G.successors(t))) == 0]
+        first_task = [t for t in G.nodes if len(list(G.predecessors(t))) == 0]
+        if len(first_task) != 1:
+            print('ERROR: invalid DAG with multiple starting nodes')
+            sys.exit(1)
+        if len(last_task) != 1:
+            print('ERROR: invalid DAG with multiple ending nodes')
+            sys.exit(1)
+        # the dummy tasks representing the start and finish nodes
+        G.graph['first_task'] =  first_task[0]
+        G.graph['last_task'] = last_task[0]
+        # the 1st and last tasks must have, respectively, the lowest and the highest node index
+        if G.graph['first_task'] != min(G.nodes):
+            print('ERROR: the 1st task does not have the lowest index of the DAG')
+            sys.exit(1)
+        if G.graph['last_task'] != max(G.nodes):
+            print('ERROR: the last task does not have the highest index of the DAG')
+            sys.exit(1)
+        # this is the set of tasks, excluding the dummy tasks
+        G.graph['actual_tasks'] = set([n for n in G.nodes]) - set([G.graph['first_task']]) - set([G.graph['last_task']])
+        # save it into the list of DAGs
+        dags.append(G)
+
+    # this limitation is related to the way the placements are encoded using an 'int'
+    # TODO test this limit using a 'long int' to support up to 64 tasks
+    n_tasks = sum([len(G.graph['actual_tasks']) for G in dags])
+    if n_tasks > 32:
+        print ('ERROR: Currently up to 32 tasks are supported')
         sys.exit(1)
-    if G.graph['last_task'] != max(G.nodes):
-        print('ERROR: the last task does not have the highest index of the DAG')
-        sys.exit(1)
-    # this is the set of tasks, excluding the dummy tasks
-    G.graph['actual_tasks'] = set([n for n in G.nodes]) - set([G.graph['first_task']]) - set([G.graph['last_task']])
-    # save it into the list of DAGs
-    dags.append(G)
 
+    for G in dags:
+        print ("dag properties:")
+        print (G.graph)
 
-# load the hardware definition file
-islands = None
-with open('ex1-hw.yaml') as file:
-    try:
-        islands = yaml.safe_load(file)   
-    except yaml.YAMLError as exc:
-        print(exc)
+        print ("node properties:")
+        for k,v in G.nodes(data=True):
+            print(k,v)
 
-# load power-related data from the CSV into the islands list of dict
-print ('')
-print ('ISLANDS:')
-for i in islands['hw']:
-    if not os.path.isfile(i['power_file']):
-        print ('ERROR: file', i['power_file'], 'not found')
-        sys.exit(1)
-    data=pd.read_csv(i['power_file'])
-    if  len(data.keys()) != 3 or data.keys()[0] != 'freq' or data.keys()[1] != 'busy_power_avg' or data.keys()[2] != 'idle_power_avg':
-        print ('ERROR: file', i['power_file'], 'has an invalid syntax')
-        sys.exit(1)
-    # it is IMPORTANT that the power data is sorted in ascending frequency
-    data.sort_values(by=['freq'], inplace=True)
-    i['busy_power'] = list(data.busy_power_avg)
-    i['idle_power'] = list(data.idle_power_avg)
-    i['freqs'] = list(data.freq)
-    i['placement'] = [] # the tasks assigned to this island
-    i['pu_utilization'] = [0.0]*i['n_pus'] # the utilization on each PU
-    i['pu_placement'] = [[] for aux in range(i['n_pus'])] # the tasks assigned to each PU
-    del(i['power_file'])
+        # print ("edge properties:")
+        # for n1, n2, data in G.edges(data=True):
+        #     print(n1, n2, data)
 
-for idx, i in enumerate(islands['hw']):
-    print ('island:', idx)
-    for key, value in i.items():
-        print(" -", key, ":", value)
+    return dags
 
-total_pus = 0
-max_n_freq = 0
-for i in islands['hw']:
-    total_pus = total_pus + i['n_pus']
-    max_n_freq = max(max_n_freq, len(i['freqs']))
+# Loads the hardware platform definition.
+# Returns the YAML file representing the hardware platform spec.
+def load_hw(filename):
+    # YAML with the hardware definition file
+    islands = None
+    with open(filename) as file:
+        try:
+            islands = yaml.safe_load(file)   
+        except yaml.YAMLError as exc:
+            print(exc)
 
-# sort the islands by capacity. also drop the 'hw' level from it
-islands = sorted(islands['hw'], key = lambda ele: ele['capacity'])
+    # load power-related data from the CSV into the islands list of dict
+    print ('')
+    print ('ISLANDS:')
+    for i in islands['hw']:
+        if not os.path.isfile(i['power_file']):
+            print ('ERROR: file', i['power_file'], 'not found')
+            sys.exit(1)
+        data=pd.read_csv(i['power_file'])
+        if  len(data.keys()) != 3 or data.keys()[0] != 'freq' or data.keys()[1] != 'busy_power_avg' or data.keys()[2] != 'idle_power_avg':
+            print ('ERROR: file', i['power_file'], 'has an invalid syntax')
+            sys.exit(1)
+        # it is IMPORTANT that the power data is sorted in ascending frequency
+        data.sort_values(by=['freq'], inplace=True)
+        i['busy_power'] = list(data.busy_power_avg)
+        i['idle_power'] = list(data.idle_power_avg)
+        i['freqs'] = list(data.freq)
+        i['placement'] = [] # the tasks assigned to this island
+        i['pu_utilization'] = [0.0]*i['n_pus'] # the utilization on each PU
+        i['pu_placement'] = [[] for aux in range(i['n_pus'])] # the tasks assigned to each PU
+        del(i['power_file'])
 
-# get the number of freq of each island
-n_freqs_per_island = [len(i['freqs']) for i in islands]
+    for idx, i in enumerate(islands['hw']):
+        print ('island:', idx)
+        for key, value in i.items():
+            print(" -", key, ":", value)
 
-# number of islands ... to avoid using len(islands) in the middle of the optim algo
-n_islands = len(islands)
-# global index to the current freq in each island
-# initialize them to the minimal freq, which is ALWAYS the first one
-# freqs_per_island_idx = [0]* n_islands
+    # sort the islands by capacity. also drop the 'hw' level from it
+    islands = sorted(islands['hw'], key = lambda ele: ele['capacity'])
 
-# get the total number of nodes of all dags
-n_nodes = sum([len(G.nodes) for G in dags])
+    return islands
 
-# debug mode
-debug = False
+# The 'unrelated_task_set' is used to account the DAG precedence constraint 
+# into PU utilization calculation. 
+# It returns a list of lists where the first and last nodes are excluded
+# TODO: implements Tommaso's code
+def create_unrelated_task_set(dags) -> list():
+    # used to account the DAG precedence constraint into PU utilization calculation
+    # the first and last nodes are excluded
+    # unrelated = [
+    #     [ 6, 7, 8 ], 
+    #     [ 3, 6 ], 
+    #     [ 5, 6, 8 ], 
+    #     [ 1, 5 ], 
+    #     [ 4, 5 ], 
+    #     [ 1, 2, 3 ], 
+    #     [ 3, 4 ]
+    # ]
+    # use this when running the example w 2 dags
+    unrelated = [
+        [ 6, 7, 8, 11 ], 
+        [ 3, 6, 11 ], 
+        [ 5, 6, 8, 11 ], 
+        [ 1, 5, 11 ], 
+        [ 4, 5, 11 ], 
+        [ 1, 2, 3, 11 ], 
+        [ 3, 4, 11 ]
+    ]
+    # TODO sort 'unrelated' by deacreasing wcet assuming the highest frequency of the high capacity island.
+    # This will increase the probability of find failing set in the first iterations in function 'check_utilization'
 
-# used to account the DAG precedence constraint into PU utilization calculation
-# the first and last nodes are excluded
-# unrelated = [
-#     [ 6, 7, 8 ], 
-#     [ 3, 6 ], 
-#     [ 5, 6, 8 ], 
-#     [ 1, 5 ], 
-#     [ 4, 5 ], 
-#     [ 1, 2, 3 ], 
-#     [ 3, 4 ]
-# ]
-# use this when running the example w 2 dags
-unrelated = [
-    [ 6, 7, 8, 11 ], 
-    [ 3, 6, 11 ], 
-    [ 5, 6, 8, 11 ], 
-    [ 1, 5, 11 ], 
-    [ 4, 5, 11 ], 
-    [ 1, 2, 3, 11 ], 
-    [ 3, 4, 11 ]
-]
-# TODO sort 'unrelated' by deacreasing wcet assuming the highest frequency of the high capacity island.
-# This will increase the probability of find failing set in the first iterations in function 'check_utilization'
+    print ("unrelated sets:")
+    for u in unrelated:
+        print (u)
 
-print ("unrelated sets:")
-for u in unrelated:
-    print (u)
-
-for G in dags:
-    print ("dag properties:")
-    print (G.graph)
-
-    print ("node properties:")
-    for k,v in G.nodes(data=True):
-        print(k,v)
-
-    # print ("edge properties:")
-    # for n1, n2, data in G.edges(data=True):
-    #     print(n1, n2, data)
-
+    return unrelated
 
 # return power consumed by the island i
 # TODO try a matrix-based version of this function
@@ -1153,6 +1185,7 @@ def get_mapping(dags, curr_mapping, n_islands, n_tasks) -> list():
 
     return placement
 
+
 # Main function that searches for the best placement found by this working process.
 # Return format (best_power, best_task_placement, best_freq_idx).
 # Return format (double, list of list, list)
@@ -1168,6 +1201,8 @@ def search_best_placement(placement_setup) -> tuple():
     # count only the actual tasks
     n_tasks = sum([len(G.nodes) for G in dags]) - (len(dags)*2)
 
+    # get the number of freq of each island
+    n_freqs_per_island = [len(i['freqs']) for i in islands]
     # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
     Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
 
@@ -1339,25 +1374,60 @@ def search_best_placement(placement_setup) -> tuple():
         return tuple()
 
 
+#####################
+# GLOBALS
+#####################
+# variable representing the YAML with hw plarform definition
+islands = None
+# number of islands ... to avoid using len(islands) in the middle of the optim algo
+n_islands = 0
+# used to account the DAG precedence constraint into PU utilization calculation
+# the first and last nodes are excluded
+unrelated = None
+# debug mode
+debug = False
+
 
 def main():
+    global unrelated
+    global islands
+    global n_islands
+    global debug
 
-    # TODO: read parameters
-    # TODO: encapsulate initialization
+    args = argument_parsing()
 
+    ################
+    # Load Files
+    ################
+    # Read the software definition
+    dags = load_sw(args.sw_file)
+    # Used to account the DAG precedence constraint into PU utilization calculation
+    unrelated = create_unrelated_task_set(dags)
+    # Read the hardware platform definition
+    islands = load_hw(args.hw_file)
+    # number of islands ... to avoid using len(islands) in the middle of the optim algo
+    n_islands = len(islands)
+
+    ################
+    # Program parameters
+    ################
+    # debug mode
+    debug = args.debug
     # TODO: the result of the search must not change when the num of workers change 
     # graph/2dags-1task-each.yaml when changed from 1 to 3
-    n_threads = 6
-    max_placement_per_worker = 99999999
+    n_threads = args.processes
+    max_placement_per_worker = args.iter
+
+    ################
+    # Parallel workload setup
+    ################
+    # TODO: encapsulate initialization
+
     # max_placement_per_worker = 10
     # 'nodes' is the set of all tasks plus the dummy tasks initial and final nodes of a DAG
     # 'tasks' represent only actual tasks, without the initial and final task of each DAG
     n_nodes = sum([len(G.nodes) for G in dags])
     n_tasks = n_nodes - (len(dags)*2)
-
-    if n_tasks > 32:
-        print ('ERROR: Currently up to 32 tasks are supported')
-        sys.exit(1)
 
     # the size of the entire search space of 'n_tasks' placements onto 'n_islands'
     total_task_placements = n_islands**n_tasks
@@ -1403,13 +1473,16 @@ def main():
         best_placement_list.append(best_placement)
     pool.close()
     pool.join()
-
-    # testing the shared variable
-    with shared_lock:
-        print ('shared power:', shared_best_power.value)    
-
     # remove the empty tuples, which means that that work package was not abble to find a suitable solution
     best_placement_list = [t for t in best_placement_list if t]
+
+    # testing the shared variable
+    # with shared_lock:
+    #     print ('shared power:', shared_best_power.value)    
+
+    ################
+    # Print out the final results
+    ################
 
     # the final results
     print("")
