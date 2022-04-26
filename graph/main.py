@@ -14,6 +14,9 @@ import argparse
 # libs
 import freq_dag
 
+############
+# setup related functions
+############
 
 def argument_parsing():
     # parsing arguments
@@ -237,17 +240,50 @@ def create_unrelated_task_set(dags) -> list():
 
     return unrelated
 
+# subdivide the entire search space into work packages that will
+# be executed by the pool of processes
+def setup_workload(dags, n_procs, max_placements) -> list():
+    n_tasks = sum([len(G.graph['actual_tasks']) for G in dags])
+    # the size of the entire search space of 'n_tasks' placements onto 'n_islands'
+    total_task_placements = n_islands**n_tasks
+    # it represents how many work packages i can divide the entire search space (total_task_placements)
+    # of placements considering a parallelism of 'n_threads'
+    n = 1
+    while (n_procs > n_islands**n):
+        n=n+1
+    search_space_subdivisions = n_islands**n
+    # the size of each work package, i.e., the number of placements to be checked by work package
+    placements_per_workload = int (math.ceil(float(total_task_placements) / float(search_space_subdivisions)))
+    print ('total_task_placements:',total_task_placements)
+    print ('search_space_subdivisions:', search_space_subdivisions)
+    print ('placements_per_workload:', placements_per_workload)
+
+    # Generate the data structure sent to the pool of processes, i.e., the initial placement and 
+    # how many placements each work package must check, and the list of DAGs. 
+    # The way it's calculated, all work package should have the same size, regardeless 
+    # n_threads, n_islands, n_tasks
+    placement_cnt = 0
+    placement_setup_list = []
+    while (placement_cnt < total_task_placements):
+        # initial placement id and the number of placements to be generated from this initial one
+        placement_setup_list.append((placement_cnt, min(placements_per_workload,max_placements), dags))
+        placement_cnt += placements_per_workload
+    print ('work packages:', search_space_subdivisions,'size:', min(placements_per_workload,max_placements))
+
+    return placement_setup_list
+
+############
+# optimization related functions
+############
+
 # return power consumed by the island i
 # TODO try a matrix-based version of this function
 def island_power(i,dags, placement, freqs_per_island_idx) -> float:
     # get the index of the tasks deployed in island i
     # assumes the tasks where already placed on the islands
-    # deployed_tasks = [x for x in islands[i]['placement']] 
     deployed_tasks = list(placement[i])
     
     # get the assigned freq and scales it down linearly with the the island max frequency
-    # TODO read the power from a matrix
-    # freq_scale_down = float(islands[i]['freqs'][freqs_per_island_idx[i]]) / float(islands[i]['freqs'][len(islands[i]['freqs'])-1])
     busy_power = islands[i]['busy_power'][freqs_per_island_idx[i]]
     idle_power = islands[i]['idle_power'][freqs_per_island_idx[i]]
 
@@ -281,39 +317,7 @@ def define_power(dags, placement, freqs_per_island_idx) ->  float:
         total_power = total_power +  island_power(i,dags, placement, freqs_per_island_idx)
     return total_power
 
-# # TODO replace this linear search for a more 'binary search' approach, skiiping lots of unfeasible freqs combinations 
-# def create_frequency_sequence() -> list():
-#     freq_seq = []
-#     stop = False
-#     # start with all islands using their respective minimal frequencies
-#     freqs_per_island_idx = [0]*n_islands
-#     freq_seq.append(list(freqs_per_island_idx))
-#     while True:
-#         # points to the last incremented island
-#         inced = 0
-#         for i in range(n_islands):
-#             # if island idx i is not pointing to its max freq, then point to the next higher freq of this island
-#             if freqs_per_island_idx[i] < (n_freqs_per_island[i]-1):
-#                 freqs_per_island_idx[i] = freqs_per_island_idx[i] +1
-#                 inced = i
-#                 break
-#             else:
-#                 # if this is not the last island, then go to the next island to increment its freq
-#                 if i >= (n_islands-1):
-#                     stop = True
-#         # all island before the last incremented island must start over at their lowest freq
-#         for i in range(inced):
-#             freqs_per_island_idx[i] = 0
-#         freq_seq.append(list(freqs_per_island_idx))
-#         # if all freqs are at their maximal value, then stop
-#         if stop:
-#             break
-#     # want to get have the maximal freq for each island 1st, to prune the search space faster
-#     reversed_freq_seq = list(reversed(freq_seq))
-#     return reversed_freq_seq
-
-# Define the wcet of each task based on in which island the task is placed.
-# List of dags as input parameter
+# Define the wcet of each task based on which island the task is placed.
 def define_wcet(dags, placement, freqs_per_island_idx) -> None:
     # wcet for all tasks assigned to 0
     for G in dags:
@@ -332,7 +336,7 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
             # find to which DAG this task belongs to
             G = None
             for dag in dags:
-                if t in dag.nodes():
+                if t in dag.graph['actual_tasks']:
                     G = dag
                     break
             wcet_ref_ns = G.nodes[t]['wcet_ref_ns']
@@ -355,7 +359,6 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
 # which is not scalable code with compexity O(n!)
 # return the list of path wcet for each node. return an empty list if 
 # the dag deadline is not feasible
-# TODO update it to work with multiple DAGs
 def define_path_wcet(H) -> list():
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
@@ -365,7 +368,6 @@ def define_path_wcet(H) -> list():
     ####################
     # 1) convert node weight into edge weight to find longest paths
     ####################
-
     H.nodes[H.graph['first_task']]["wcet"] = 0
     H.nodes[H.graph['last_task']]["wcet"] = 0
     dag_deadline = H.graph['deadline']
@@ -380,7 +382,7 @@ def define_path_wcet(H) -> list():
     if (max_task_wcet > dag_deadline):
         if debug:
             print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
-            for t in H.nodes:
+            for t in H.graph['actual_tasks']:
                 print (t, H.nodes[t]["wcet"])
         # temp_tuple = (terminate_counters[0][0]+1,terminate_counters[0][1]+elapsed_time)
         # terminate_counters[0] = temp_tuple
@@ -452,8 +454,6 @@ def define_path_wcet(H) -> list():
     path_wcet_list = [H.nodes[n]["wcet"] for n in H.nodes]
     # a tuple to save the longest of all paths. format (path wcet, path)
     critical_path2 = (0,[])
-    # remove the initial and last nodes of the DAG
-    # task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
     for n in H.graph['actual_tasks']:
         #start_time = time.time()
         # get all the paths where node n is found
@@ -472,17 +472,6 @@ def define_path_wcet(H) -> list():
                 print ('WARNING: critical path', max_partial_path[1], 'takes', max_partial_path[0],', longer than DAG deadline', dag_deadline)
             # temp_tuple = (terminate_counters[2][0]+1,terminate_counters[2][1]+elapsed_time)
             # terminate_counters[2] = temp_tuple
-            #print ('PARTIAL PATH:')
-            #for p in path_wcet_sum:
-            #    print (p, [H.nodes[n1]["wcet"] for n1 in p[1]])
-            #    p[1].append(9)
-            #    for idx in range(len(p[1])-1):
-            #        s = p[1][idx]
-            #        t = p[1][idx+1]
-            #        print(s,t,H.get_edge_data(s,t))
-            #print ('CRITICAL PATH:')
-            #print (wcet_critical_path, critical_path, [H.nodes[n1]["wcet"] for n1 in critical_path])    
-            #sys.exit(1)            
             return []
         # save the longest of all paths
         if max_partial_path[0] > critical_path2[0]:
@@ -495,8 +484,6 @@ def define_path_wcet(H) -> list():
             # since, except for the 1st dag, all the other dags wont have a 1st node of index 0
             offset_idx = p-H.graph['first_task']
             path_wcet_list[offset_idx] = max(max_partial_path[0],path_wcet_list[offset_idx])
-    # print ('CRITICAL PATH:')
-    # print (critical_path2)
     # if the critical path is longer than the DAG deadline, this cannot be a solution
     if critical_path2[0] > dag_deadline:
         # not expecting to reach this point unless there is a bug above
@@ -505,11 +492,10 @@ def define_path_wcet(H) -> list():
 
     return path_wcet_list
 
-# assign relative deadline to each node
+# Assign relative deadline to each node
 # TODO it's also very inneficient because this is calculated for every frequency for every placement.
 # the critical path and the relative deadlines could be pre-processed only once at startup
 # TODO replace it by Tommaso's function
-# TODO update it to work with multiple DAGs
 # freqs_per_island_idx used only for debugging purposes
 def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:    
     # main steps:   
@@ -519,9 +505,6 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
     # 4) transfer the relative deadline back to the original DAG
 
     for H in dags:
-        # deep copy the DAG
-        # H = G.copy()
-
         # some basic definitions
         dag_deadline = H.graph['deadline']
 
@@ -538,8 +521,6 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
         ############################
         # 2) assign deadline to all nodes proportionally to its wcet and path wcet
         ############################
-        # remove the initial and last nodes of the DAG
-        # task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
         for n in H.graph['actual_tasks']:
             # 'n-H.graph['first_task']' is required when working with multi dags
             # since, except for the 1st dag, all the other dags wont have a 1st node of index 0
@@ -585,12 +566,6 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
                 # temp_tuple = (terminate_counters[3][0]+1,0.0)
                 # terminate_counters[3] = temp_tuple
                 return False
-
-        ############################
-        # 4) transfer the relative deadline back to the original DAG
-        ############################
-        # for n in H.nodes:
-        #     G.nodes[n]["rel_deadline"] = H.nodes[n]["rel_deadline"]
 
     return True
 
@@ -690,7 +665,6 @@ def create_minizinc_datafile(i, placement, freq_seq, filename):
 
     f.close()
 
-minizinc_cnt = 0
 # Optimal solution to the place a task set onto PUs.
 # It returns true if the task placement is feasible.
 # TODO capture the placement output of minizinc
@@ -741,37 +715,23 @@ def optimal_placement(i, freq_seq) -> bool:
 # If the heuristic says that it is not possible to place the tasks, then it runs an exact optimal
 # solver to confirm it. Hopefully, the heuristic will be sufficient most of the times.
 # Returns false if any PU on any island exeeds the utilization threshold.
-# TODO update it to work with multiple DAGs
 def check_utilization(dags, placement, freqs_per_island_idx) -> bool:
+    global unrelated
     # for each island, run the placement heuristic and, if required, the exact solution
-    # temp_solution = []
-    # get the initial and last tasks of each DAG
-    # first_tasks = [G.graph['first_task'] for G in dags]
-    # last_tasks = [G.graph['last_task'] for G in dags]
-    # first_and_last_tasks = first_tasks + last_tasks
     # The 'unrelated' set represents the list of tasks that could be run concurently in a PU
-    # unrelated = [
-    # [ 6, 7, 8 ], 
-    # [ 3, 6 ], 
-    # [ 5, 6, 8 ], 
-    # [ 1, 5 ], 
-    # [ 4, 5 ], 
-    # [ 1, 2, 3 ], 
-    # [ 3, 4 ]
-    # ]
     for u in unrelated:
         u_set = set(u)
         for idx, i in enumerate(islands):
             p_set = set(placement[idx])
+            # the tasks in this island that are also in the unrelated set
             u_set_in_island = u_set.intersection(p_set)
-            if len(u_set_in_island)==0:
+            # no need to perform utilization analysis if there is only one task in this island.
+            # the way it is calculated, a single task will always fit in an island
+            if len(u_set_in_island)<=1:
                 continue
-            # for ui in u_set_in_island:
             # to keep track of worst_fit heuristic with good data locality
             utilization_per_pu = [0.0]*i['n_pus']
             task_placement = [[] for aux in range(i['n_pus'])]
-            # remove the initial and last nodes of the tasks placed on this island, not matter the DAG
-            # task_set = [t for t in placement[idx] if t not in first_and_last_tasks]
             # have to calculate the task utilization upfront in order to sort the tasks by utilization,
             # increasing the efficienty of the worst-fit heurisitic, reducing the need to run the optimal_placement function
             task_utilization = []
@@ -780,7 +740,7 @@ def check_utilization(dags, placement, freqs_per_island_idx) -> bool:
                 # find to which DAG this task belongs to
                 G = None
                 for dag in dags:
-                    if t in dag.nodes():
+                    if t in dag.graph['actual_tasks']:
                         G = dag
                         break
                 task_utilization.append((float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']), t))
@@ -789,31 +749,23 @@ def check_utilization(dags, placement, freqs_per_island_idx) -> bool:
             for t in task_utilization:
                 # get the PUs with minimal utilization
                 pu = utilization_per_pu.index(min(utilization_per_pu))
-                # get the utilization for the current task t
-                #pu_utilization = (float(G.nodes[t]['wcet']) / float(G.nodes[t]['rel_deadline']))
-                #print (t, pu, pu_utilization)
                 # check if it is possible to assign this task to the pu, i.e., if the pu utilization is < 1.0
                 if utilization_per_pu[pu] + t[0] > 1.0:
-                    # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
-                    # return optimal_placement(idx,freqs_per_island_idx)
                     if debug:
                         print ('WARNING: utilization constraint failed',freqs_per_island_idx, task_utilization)
+                    # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
+                    # return optimal_placement(idx,freqs_per_island_idx)
                     return False
-                    # task_placement = []
-                    # if len(task_placement) == 0:
-                    #     return False
-                    # break
                 else:
                     utilization_per_pu[pu] = utilization_per_pu[pu] + t[0]
                     task_placement[pu].append(t[1])
-            # temp_solution.append((utilization_per_pu,task_placement))
-    # the solution is copied back to the islands data structure only if the task placement is feasible for all islands
+
     # TODO is it required to copy the solution back to the islands list ?
+    # the solution is copied back to the islands data structure only if the task placement is feasible for all islands
     # perhaps the best is to find the best solutions, and then calculate it again
     # for idx, i in enumerate(islands):
     #     i['pu_utilization'] = list(temp_solution[idx][0])
     #     i['pu_placement'] = list(temp_solution[idx][1])
-    
     return True
 
 # 2nd implementation of check_utilization() where the task utilization
@@ -863,17 +815,6 @@ def check_utilization_mat(task_utilization_array) -> bool:
         i['pu_placement'] = list(temp_solution[idx][1])
     
     return True
-
-# define_rel_deadlines2(G)
-# print ('NEW RELATIVE DEADLINES:')
-# for n in G.nodes:
-#     print (n, G.nodes[n]["rel_deadline"])
-
-# define_rel_deadlines(G)
-# print ('NEW RELATIVE DEADLINES2:')
-# for n in G.nodes:
-#     print (n, G.nodes[n]["rel_deadline"])
-# sys.exit(1)
 
 # This is a matrix-based (i.e. similar to matlab code) for cheking
 # whether the task placement is viable, i.e., the critical path 
@@ -1031,17 +972,18 @@ def check_placement_mat(placement_array) -> bool:
     return check_utilization_mat(task_utilization_array)
 
 # convert the task placement for all DAGs from the format of 'list of list' into numpy array
-def convert_placement_list_to_np_array(placement):
-    n_nodes = len(G.nodes)
-    placement_array = np.zeros((n_islands, n_nodes),dtype=int)
+def convert_placement_list_to_np_array(dags,placement):
+    n_tasks = sum([len(G.graph['actual_tasks']) for G in dags])
+    placement_array = np.zeros((n_islands, n_tasks),dtype=int)
     for i in range(n_islands):
-        # exclude the 1st and last nodes of all DAGs
-        # task_set = [t for G in dags for t in G.nodes if t != G.graph['first_task'] and t != G.graph['last_task']]
-        for t in G.graph['actual_tasks']:
-            if t in placement[i]:
-                placement_array[i,t] = 1
-            else:
-                placement_array[i,t] = 0
+        for G in dags:
+            for t in G.graph['actual_tasks']:
+                # idx is required to support multi dags since the 2nd dag wont start with node 0
+                idx = t - G.graph['first_task']
+                if t in placement[i]:
+                    placement_array[i,idx] = 1
+                else:
+                    placement_array[i,idx] = 0
     return placement_array
 
 # np.set_printoptions(precision=2)
@@ -1057,7 +999,6 @@ def convert_placement_list_to_np_array(placement):
 # for i in islands:
 #     print ('pu utilization:',i['pu_utilization'])
 #     print ('pu placement',i['pu_placement'])
-
 # sys.exit(1)
 
 # Simplified algoritm used to prune some task placements
@@ -1068,30 +1009,6 @@ def convert_placement_list_to_np_array(placement):
 #         print ('deleted placement', leaf_list[l].islands)
 #         del(leaf_list[l])
 
-# for i in range(n_islands):
-#    islands[i]["placement"] = leaf_list[0].islands[i]
-# [[9, 8, 7, 6, 3,  0, 1, 5], [4], [2]]
-# islands[0]["placement"] = [9, 8, 7, 6, 3,  0, 1, 5]
-# islands[1]["placement"] = []
-# islands[2]["placement"] = [2, 4]
-# islands[0]["placement"] = [9, 8, 7,  3, 2, 0, 1, 5]
-# islands[1]["placement"] = []
-# islands[2]["placement"] = [6, 4]
-# freqs_per_island_idx = [2,2,2]
-# freqs_per_island_idx = [0,1,0]
-# define_wcet()
-# feasible = define_rel_deadlines(G)
-# feasible2 = check_utilization()
-# power = define_power()
-# print ("{:.2f}".format(power), feasible, feasible2, freqs_per_island_idx)
-# for t in range(len(G.nodes)):
-#     print (G.nodes[t]["wcet"], G.nodes[t]["rel_deadline"])
-# for i in islands:
-#     print ('pu utilization:',i['pu_utilization'])
-#     print ('pu placement',i['pu_placement'])
-# create_minizinc_datafile(0,freqs_per_island_idx)
-# optimal_placement(0,freqs_per_island_idx)
-# sys.exit(1)
 
 # best_power = 999999.0
 # best_freq = None
@@ -1112,9 +1029,9 @@ def convert_placement_list_to_np_array(placement):
 # print ("{:.2f}".format(best_power), best_freq)
 # sys.exit(1)
 
-# To pass the shared variables to the pool.
+# Pass the shared variables to the pool of processes.
 # like shared values, locks cannot be shared in a Pool - instead, pass the 
-# multiprocessing.Lock() at Pool creation time, using the initializer=init_lock.
+# multiprocessing.Lock() at Pool creation time, using the initializer=init_globals.
 # This will make your lock instance global in all the child workers.
 # The init_globals is defined as a function - see init_globals() at the top.
 # source : https://serveanswer.com/questions/multiprocessing-pool-map-multiple-arguments-with-shared-value-resolved
@@ -1125,7 +1042,7 @@ def init_globals(counter, l):
     shared_best_power = counter
     shared_lock = l
 
-# It converts an interget into a list of list representing the actual task mapping onto islands.
+# It converts an integer into a list of list representing the actual task mapping onto islands.
 # Limitation: supports up to 32 tasks assuming a 32-bit int encodes the task mapping.
 # It is based on a numerical system of base 'n_islands' which encodes a task mapping onto islands.
 # For example:
@@ -1147,6 +1064,7 @@ def decode_mapping(curr_mapping, n_islands, n_tasks) -> list():
         mapping[island].append(i)
     return mapping
 
+# Return a task mapping onto islands from an integer code.
 # This function is divided into two parts:
 #  1) the mapping decoding based on a numerical system of 'n_islands' base
 #  2) the mapping adjustment to discard the dummy tasks
@@ -1157,8 +1075,6 @@ def get_mapping(dags, curr_mapping, n_islands, n_tasks) -> list():
     dummy_tasks = [dag.graph['first_task'] for dag in dags]
     dummy_tasks += [dag.graph['last_task'] for dag in dags]
     dummy_tasks.sort()
-    # for i in placement:
-    #     i.sort()
     # the idea is that, for each dummy task, increment all subsequent tasks
     # such that the final indexes in 'placement' points to the correct actual tasks,
     # skipping the dummy tasks
@@ -1167,7 +1083,6 @@ def get_mapping(dags, curr_mapping, n_islands, n_tasks) -> list():
             for idx,t in enumerate(i):
                 if t >= d:
                     # # all subsequent indexes are incremented
-                    # for idx2,not_used in enumerate(i[idx:]):
                     i[idx] += 1
     # TODO place here some code to check the consistency of the generated placement
     # # cannot find a task in multiple island
@@ -1181,10 +1096,7 @@ def get_mapping(dags, curr_mapping, n_islands, n_tasks) -> list():
     #         if len(inter) > 0:
     #             print ('ERROR: task(s) ', inter, 'where found in islands',idx1,'and',idx2)
     #             sys.exit(1)
-
-
     return placement
-
 
 # Main function that searches for the best placement found by this working process.
 # Return format (best_power, best_task_placement, best_freq_idx).
@@ -1206,11 +1118,6 @@ def search_best_placement(placement_setup) -> tuple():
     # class that the encapsulate all the logic behind deciding the next frequecy sequence to be evaluated
     Fdag = freq_dag.Freq_DAG(n_freqs_per_island)
 
-    # this is the non-optimized data structure for the frequencies set
-    # freq_seq = create_frequency_sequence()
-    # freq_cnts = [0]*len(freq_seq)
-    # print ('Frequency sequences:', len(freq_seq))
-
     # place holders for the best solution found by this process
     best_power = float("inf")
     best_task_placement = [0]*n_islands
@@ -1227,20 +1134,11 @@ def search_best_placement(placement_setup) -> tuple():
     bad_deadline = 0
     bad_utilization = 0
 
-    # # testing the lock mechanism
-    # with shared_lock:
-    #     best_power = shared_best_power.value
-    #     shared_best_power.value = best_power + 1 
-    #     print (shared_best_power.value)
-
     print("")
     for i in range(n_placements):
-        placement = get_mapping(dags, current_placement, n_islands, n_tasks)
         # assume the following task placement onto the set of islands
-        # for i in range(n_islands):
-        #     islands[i]["placement"] = l.islands[i]
+        placement = get_mapping(dags, current_placement, n_islands, n_tasks)
         print (mp.current_process().name,':', placement)
-
 
         # Initialize freq to each island to their respective max freq.
         # The rational is that, if this task placement does not respect the DAG deadline
@@ -1250,16 +1148,10 @@ def search_best_placement(placement_setup) -> tuple():
 
         if i%100 == 0:
             print ('Checking solution',i, 'out of',n_placements, 'possible mappings')
-        # for f in range(len(freq_seq)):
         keep_evaluating_freq_seq = True
         while keep_evaluating_freq_seq:
             # get the frequency sequence to be tested
-            #freqs_per_island_idx = freq_seq[f]
             freqs_per_island_idx = Fdag.get()
-            # if debug:
-            # print ('PLACEMENT and FREQs')
-            # for i in range(n_islands):
-            #     print(islands[i]["placement"])
             #print('freqs:',  hex(id(freqs_per_island_idx)), hex(id(Fdag)), freqs_per_island_idx)
             evaluated_solutions = evaluated_solutions +1
             start_time = time.time()
@@ -1320,15 +1212,13 @@ def search_best_placement(placement_setup) -> tuple():
             best_solutions = best_solutions +1
             best_power = power
             # save the best task placement onto the set of islands and the best frequency assignment
-            # for i in range(n_islands):
-            #     best_task_placement[i] = list(l.islands[i])
             best_task_placement = list(placement[:])
             best_freq_idx = list(freqs_per_island_idx)
             if debug:
                 print ('solution found with power',"{:.2f}".format(best_power), best_task_placement, best_freq_idx)
                 print ('WCET and REL DEADLINE:')
                 for G in dags:
-                    for n in G.nodes:
+                    for n in G.graph['actual_tasks']:
                         print (n, G.nodes[n]["wcet"], G.nodes[n]["rel_deadline"])
             
             keep_evaluating_freq_seq = Fdag.next()
@@ -1373,7 +1263,6 @@ def search_best_placement(placement_setup) -> tuple():
         print ('Process:', mp.current_process().name, 'was not able to find a better solution' )
         return tuple()
 
-
 #####################
 # GLOBALS
 #####################
@@ -1386,7 +1275,8 @@ n_islands = 0
 unrelated = None
 # debug mode
 debug = False
-
+# hack to count the number of times minizinc is executed. need to update it to work w multiple procs
+# minizinc_cnt = 0
 
 def main():
     global unrelated
@@ -1415,33 +1305,15 @@ def main():
     debug = args.debug
     # TODO: the result of the search must not change when the num of workers change 
     # graph/2dags-1task-each.yaml when changed from 1 to 3
-    n_threads = args.processes
+    n_procs = args.processes
+    # by default, run the entire search space. 
     max_placement_per_worker = args.iter
 
     ################
     # Parallel workload setup
     ################
-    # TODO: encapsulate initialization
-
-    # max_placement_per_worker = 10
-    # 'nodes' is the set of all tasks plus the dummy tasks initial and final nodes of a DAG
-    # 'tasks' represent only actual tasks, without the initial and final task of each DAG
-    n_nodes = sum([len(G.nodes) for G in dags])
-    n_tasks = n_nodes - (len(dags)*2)
-
-    # the size of the entire search space of 'n_tasks' placements onto 'n_islands'
-    total_task_placements = n_islands**n_tasks
-    # it represents how many work packages i can divide the entire search space (total_task_placements)
-    # of placements considering a parallelism of 'n_threads'
-    n = 1
-    while (n_threads > n_islands**n):
-        n=n+1
-    search_space_subdivisions = n_islands**n
-    # the size of each work package, i.e., the number of placements to be checked by work package
-    placements_per_workload = int (math.ceil(float(total_task_placements) / float(search_space_subdivisions)))
-    print ('total_task_placements:',total_task_placements)
-    print ('search_space_subdivisions:', search_space_subdivisions)
-    print ('placements_per_workload:', placements_per_workload)
+    # subdivide the entire search space for parallel processing
+    placement_setup_list = setup_workload(dags, n_procs, max_placement_per_worker)
 
     # shared variable used to keep the the processes updated related to the lowest power consumption found so far.
     # this is used to bound the search space
@@ -1450,24 +1322,11 @@ def main():
     # 9 billions, 999 millions...
     shared_best_power = manager.Value('d', 9999999999.0)
     shared_lock = mp.Lock()
-
-    # Generate the data structure sent to the pool of processes, i.e., the initial placement and 
-    # how many placements each work package must check, and the list of DAGs. 
-    # The way it's calculated, all work package should have the same size, regardeless 
-    # n_threads, n_islands, n_tasks
-    placement_cnt = 0
-    placement_setup_list = []
-    while (placement_cnt < total_task_placements):
-        # initial placement id and the number of placements to be generated from this initial one
-        placement_setup_list.append((placement_cnt, min(placements_per_workload,max_placement_per_worker), dags))
-        placement_cnt += placements_per_workload
-    print ('work packages:', search_space_subdivisions,'size:', min(placements_per_workload,max_placement_per_worker))
-
     # Alternatively, you could use Pool.imap_unordered, which starts returning 
     # results as soon as they are available instead of waiting until everything is finished. So you could tally the amount of returned results and use that to update the progress bar.
     # source: https://devdreamz.com/question/633149-how-to-use-values-in-a-multiprocessing-pool-with-python
     best_placement_list = []
-    pool =  mp.Pool(initializer=init_globals, processes=n_threads, initargs=(shared_best_power,shared_lock,))
+    pool =  mp.Pool(initializer=init_globals, processes=n_procs, initargs=(shared_best_power,shared_lock,))
     # result_list = pool.map(search_best_placement, placement_setup_list)
     for best_placement in pool.map(search_best_placement, placement_setup_list):
         best_placement_list.append(best_placement)
@@ -1483,8 +1342,6 @@ def main():
     ################
     # Print out the final results
     ################
-
-    # the final results
     print("")
     if len(best_placement_list) > 0:
         best_placement_list.sort(key=lambda y: y[0])
