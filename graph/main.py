@@ -90,8 +90,18 @@ for idx, i in enumerate(sw['dags']):
     if len(last_task) != 1:
         print('ERROR: invalid DAG with multiple ending nodes')
         sys.exit(1)
+    # the dummy tasks representing the start and finish nodes
     G.graph['first_task'] =  first_task[0]
     G.graph['last_task'] = last_task[0]
+    # the 1st and last tasks must have, respectively, the lowest and the highest node index
+    if G.graph['first_task'] != min(G.nodes):
+        print('ERROR: the 1st task does not have the lowest index of the DAG')
+        sys.exit(1)
+    if G.graph['last_task'] != max(G.nodes):
+        print('ERROR: the last task does not have the highest index of the DAG')
+        sys.exit(1)
+    # this is the set of tasks, excluding the dummy tasks
+    G.graph['actual_tasks'] = set([n for n in G.nodes]) - set([G.graph['first_task']]) - set([G.graph['last_task']])
     # save it into the list of DAGs
     dags.append(G)
 
@@ -156,16 +166,25 @@ debug = False
 
 # used to account the DAG precedence constraint into PU utilization calculation
 # the first and last nodes are excluded
+# unrelated = [
+#     [ 6, 7, 8 ], 
+#     [ 3, 6 ], 
+#     [ 5, 6, 8 ], 
+#     [ 1, 5 ], 
+#     [ 4, 5 ], 
+#     [ 1, 2, 3 ], 
+#     [ 3, 4 ]
+# ]
+# use this when running the example w 2 dags
 unrelated = [
-    [ 6, 7, 8 ], 
-    [ 3, 6 ], 
-    [ 5, 6, 8 ], 
-    [ 1, 5 ], 
-    [ 4, 5 ], 
-    [ 1, 2, 3 ], 
-    [ 3, 4 ]
+    [ 6, 7, 8, 11 ], 
+    [ 3, 6, 11 ], 
+    [ 5, 6, 8, 11 ], 
+    [ 1, 5, 11 ], 
+    [ 4, 5, 11 ], 
+    [ 1, 2, 3, 11 ], 
+    [ 3, 4, 11 ]
 ]
-
 # TODO sort 'unrelated' by deacreasing wcet assuming the highest frequency of the high capacity island.
 # This will increase the probability of find failing set in the first iterations in function 'check_utilization'
 
@@ -206,7 +225,7 @@ def island_power(i,dags, placement, freqs_per_island_idx) -> float:
         wcet = 0
         # find to which DAG this task belongs to
         for G in dags:
-            if t in G.nodes():
+            if t in G.graph['actual_tasks']:
                 activation_period = G.graph['activation_period']
                 # assumes that wcet was calculated previously
                 wcet = G.nodes[t]['wcet']
@@ -268,17 +287,6 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
     for G in dags:
         for t in G.nodes:
             G.nodes[t]["wcet"] = 0
-    # cannot find a task in multiple island
-    for idx1,i1 in enumerate(placement[:-1]):
-        for idx2, i2 in enumerate(placement[idx1+1:]):
-            # set1 = set(i1['placement'])
-            # set2 = set(i2['placement'])
-            set1 = set(i1)
-            set2 = set(i2)
-            inter = set1.intersection(set2)
-            if len(inter) > 0:
-                print ('ERROR: task(s) ', inter, 'where found in islands',idx1,'and',idx2)
-                sys.exit(1)
     # TODO reference frequency is an attribute of the hardware or the software ?!?
     # it would be much easier if ref_freq would be an attribute of the hw
     f_ref = dags[0].graph['ref_freq']
@@ -301,7 +309,7 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
             G.nodes[t]["wcet"] = int(math.ceil(wcet))
     # cannot have a task not placed in an island
     for G in dags:
-        for t in G.nodes:
+        for t in G.graph['actual_tasks']:
             if G.nodes[t]["wcet"] == 0:
                 print ('ERROR: wcet for task', t, 'not defined')
                 sys.exit(1)
@@ -413,8 +421,8 @@ def define_path_wcet(H) -> list():
     # a tuple to save the longest of all paths. format (path wcet, path)
     critical_path2 = (0,[])
     # remove the initial and last nodes of the DAG
-    task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
-    for n in task_set:
+    # task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
+    for n in H.graph['actual_tasks']:
         #start_time = time.time()
         # get all the paths where node n is found
         paths_of_node_n = [p for p in all_paths_list if n in p]
@@ -451,7 +459,10 @@ def define_path_wcet(H) -> list():
         for p in max_partial_path[1]:
             # replace node wcet by path wcet
             # so, each item in this list has its longest path wcet
-            path_wcet_list[p] = max(max_partial_path[0],path_wcet_list[p])
+            # 'p-H.graph['first_task']' is required when working with multi dags
+            # since, except for the 1st dag, all the other dags wont have a 1st node of index 0
+            offset_idx = p-H.graph['first_task']
+            path_wcet_list[offset_idx] = max(max_partial_path[0],path_wcet_list[offset_idx])
     # print ('CRITICAL PATH:')
     # print (critical_path2)
     # if the critical path is longer than the DAG deadline, this cannot be a solution
@@ -496,9 +507,12 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
         # 2) assign deadline to all nodes proportionally to its wcet and path wcet
         ############################
         # remove the initial and last nodes of the DAG
-        task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
-        for n in task_set:
-            wcet_ratio = float(H.nodes[n]["wcet"])/float(path_wcet_list[n])
+        # task_set = [t for t in H.nodes if t != H.graph['first_task'] and t != H.graph['last_task']]
+        for n in H.graph['actual_tasks']:
+            # 'n-H.graph['first_task']' is required when working with multi dags
+            # since, except for the 1st dag, all the other dags wont have a 1st node of index 0
+            offset_idx = n-H.graph['first_task']
+            wcet_ratio = float(H.nodes[n]["wcet"])/float(path_wcet_list[offset_idx])
             # assign rel_deadline proportional to its wcet
             H.nodes[n]["rel_deadline"] = int(math.floor(wcet_ratio*dag_deadline))    
 
@@ -531,7 +545,7 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
                 H.nodes[node]["rel_deadline"] = H.nodes[node]["rel_deadline"] + (dag_deadline - max_rel_deadline_sum)
 
         # the relative deadline of a task cannot be lower than its wcet
-        for n in task_set:
+        for n in H.graph['actual_tasks']:
             if H.nodes[n]["rel_deadline"] < H.nodes[n]["wcet"]:
                 if debug:
                     print ('WARNING: task', n, 'has wcet', H.nodes[n]["wcet"], 'and relative deadline', H.nodes[n]["rel_deadline"])
@@ -990,8 +1004,8 @@ def convert_placement_list_to_np_array(placement):
     placement_array = np.zeros((n_islands, n_nodes),dtype=int)
     for i in range(n_islands):
         # exclude the 1st and last nodes of all DAGs
-        task_set = [t for G in dags for t in G.nodes if t != G.graph['first_task'] and t != G.graph['last_task']]
-        for t in task_set:
+        # task_set = [t for G in dags for t in G.nodes if t != G.graph['first_task'] and t != G.graph['last_task']]
+        for t in G.graph['actual_tasks']:
             if t in placement[i]:
                 placement_array[i,t] = 1
             else:
@@ -1123,6 +1137,19 @@ def get_mapping(dags, curr_mapping, n_islands, n_tasks) -> list():
                     # # all subsequent indexes are incremented
                     # for idx2,not_used in enumerate(i[idx:]):
                     i[idx] += 1
+    # TODO place here some code to check the consistency of the generated placement
+    # # cannot find a task in multiple island
+    # for idx1,i1 in enumerate(placement[:-1]):
+    #     for idx2, i2 in enumerate(placement[idx1+1:]):
+    #         # set1 = set(i1['placement'])
+    #         # set2 = set(i2['placement'])
+    #         set1 = set(i1)
+    #         set2 = set(i2)
+    #         inter = set1.intersection(set2)
+    #         if len(inter) > 0:
+    #             print ('ERROR: task(s) ', inter, 'where found in islands',idx1,'and',idx2)
+    #             sys.exit(1)
+
 
     return placement
 
@@ -1318,9 +1345,11 @@ def main():
     # TODO: read parameters
     # TODO: encapsulate initialization
 
-    n_threads = 1
+    # TODO: the result of the search must not change when the num of workers change 
+    # graph/2dags-1task-each.yaml when changed from 1 to 3
+    n_threads = 6
     max_placement_per_worker = 99999999
-    max_placement_per_worker = 10
+    # max_placement_per_worker = 10
     # 'nodes' is the set of all tasks plus the dummy tasks initial and final nodes of a DAG
     # 'tasks' represent only actual tasks, without the initial and final task of each DAG
     n_nodes = sum([len(G.nodes) for G in dags])
@@ -1397,7 +1426,7 @@ def main():
         print('Best solution:')
         print (' - power:',"{:.2f}".format(best_placement_list[0][0]))
         for i in range(n_islands):
-            print (' - island:', i, 'placement:', best_placement_list[0][1][i], 'frequency:',islands[i]['freqs'][best_placement_list[0][2][i]])
+            print (' - island:', i, ', capacity:', islands[i]['capacity'],', placement:', best_placement_list[0][1][i], ', frequency:',islands[i]['freqs'][best_placement_list[0][2][i]])
     else:
         print ('no feasiable solution was found :(')
 
