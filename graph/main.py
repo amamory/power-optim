@@ -575,7 +575,7 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
 # to check the precedence constraints. However, the utilization is zero
 # when the task is not mapped to the target island.
 # TODO update it to work with multiple DAGs
-def create_minizinc_datafile(i, placement, freq_seq, filename):
+def create_minizinc_datafile(dags, i, placement, freq_seq, filename):
 
     def unrelated_line(f, line_start, n, unrel_row):
         f.write(line_start)
@@ -601,39 +601,45 @@ def create_minizinc_datafile(i, placement, freq_seq, filename):
     f.write("%%   placement = %s\n" % (str(placement)))
     f.write("%%   freq_seq = %s\n\n" % (str(freq_seq)))
     f.write("N_CORES = %d;\n" % (islands[i]['n_pus']))
+    f.write("N_DAGS = %d;\n" % ( len(dags) ))
     # All nodes are included into the model instead of only the ones assigned to the island.
     # This way, it's easier to check the precedence constraints
-    f.write("N_NODES = %d;\n" % (len(G.nodes)))
-    f.write("N_EDGES = %d;\n\n" % (len(G.edges)))
+    f.write("% these two constants represent the sum of all nodes and edges of all DAGs\n")
+    f.write("N_NODES = %d;\n" % ( sum([len(G.nodes) for G in dags]) ))
+    f.write("N_EDGES = %d;\n\n" % ( sum([len(G.edges) for G in dags]) ))
 
     f.write("N_UNREL_ROWS = %d;\n" % (len(unrelated)))
     max_unrel_size = max([len(i) for i in unrelated])
     f.write("N_UNREL_COLS = %d;\n\n" % (max_unrel_size))
 
-    f.write("% the dag deadline\n")
-    f.write("Ddag = %d;\n\n" % (G.graph['deadline']))
+    f.write("% the deadline of each DAG\n")
+    f.write("Ddag = %s;\n\n" % ( [G.graph['deadline'] for G in dags] ))
 
-    # gather the task-related data to fill these minizinc arrays
-    wcet = []
-    rel_deadline = []
+    f.write("% required to fix the index of the matrices shared among the DAGs\n")
+    f.write("first_node = %s;\n" % ( [G.graph['first_task']+1 for G in dags] ))
+    f.write("last_node = %s;\n\n" % ( [G.graph['last_task']+1 for G in dags] ))
+
+    # gather the utilization required from each task considering all DAGs
     task_utilization = []
-    for n in range(len(G.nodes)):
-        wcet.append(G.nodes[n]['wcet'])
-        rel_deadline.append(G.nodes[n]['rel_deadline'])
-        util = 0.0
-        # if the node n is not in the task set to be placed in this island,
-        # then utilization is 0, i.e., it wont be taken into account when 
-        # cheking the pu utilization
-        if n in placement[i]:
-            if G.nodes[n]['rel_deadline'] != 0:
-                util = float(G.nodes[n]['wcet'])/float(G.nodes[n]['rel_deadline'])
-        task_utilization.append(round(util,4))
-
-    # f.write("% wcet for each task\n")
-    # f.write("T = %s;\n\n" % (str(wcet)))
+    for G in dags:
+        first_task = G.graph['first_task']
+        for n in range(len(G.nodes)):
+            util = 0.0
+            # if the node n is not in the task set to be placed in this island,
+            # then utilization is 0, i.e., it wont be taken into account when 
+            # cheking the pu utilization
+            if first_task+n in placement[i]:
+                if G.nodes[first_task+n]['rel_deadline'] != 0:
+                    util = float(G.nodes[first_task+n]['wcet'])/float(G.nodes[first_task+n]['rel_deadline'])
+            task_utilization.append(round(util,4))
 
     f.write("% relative deadline to each task\n")
-    f.write("D = %s;\n\n" % (rel_deadline))
+    rel_dealine = []
+    for G in dags:
+        first_task = G.graph['first_task']
+        for n in range(len(G.nodes)):
+            rel_dealine.append (G.nodes[first_task+n]['rel_deadline'])
+    f.write("D = %s;\n\n" % ( rel_dealine ))
 
     f.write("% utilization required by task: T[i]/D[i]\n")
     f.write("U = %s;\n\n" % (task_utilization))
@@ -653,13 +659,14 @@ def create_minizinc_datafile(i, placement, freq_seq, filename):
     f.write("% list of edges indicating which nodes are connected\n")
     f.write("E =  \n")
     idx = 0
-    for n1, n2 in G.edges():
-        if idx == 0:
-            f.write("   [")
-        else:
-            f.write("    ")
-        f.write("| "+str(n1+1)+","+str(n2+1)+"\n")
-        idx = idx = 1
+    for G in dags:
+        for n1, n2 in G.edges():
+            if idx == 0:
+                f.write("   [")
+            else:
+                f.write("    ")
+            f.write("| "+str(n1+1)+","+str(n2+1)+"\n")
+            idx = idx = 1
     # the last line
     f.write("    |];\n")
 
@@ -669,20 +676,15 @@ def create_minizinc_datafile(i, placement, freq_seq, filename):
 # It returns true if the task placement is feasible.
 # TODO capture the placement output of minizinc
 # TODO update it to work with multiple DAGs
-def optimal_placement(i, freq_seq) -> bool:
-    # create the minizinc dzn file
-    # run minizinc
-    # capture the task placement, if this is feasible
-    #return False
+def optimal_placement(dags, i, placement, freq_seq) -> bool:
     global minizinc_cnt
     minizinc_cnt = minizinc_cnt +1
 
-    placement = [i['placement'] for i in islands]
     # data_filename  = str(placement)+"-"+str(freq_seq)+".dnz"
     # data_filename  = data_filename.replace(" ", "")
     data_filename = 'data_gen.dzn'
 
-    create_minizinc_datafile(i, placement, freq_seq, data_filename)
+    create_minizinc_datafile(dags, i, placement, freq_seq, data_filename)
 
     # print ("Running minizinc:", data_filename)
     proc_minizinc = None
@@ -754,8 +756,8 @@ def check_utilization(dags, placement, freqs_per_island_idx) -> bool:
                     if debug:
                         print ('WARNING: utilization constraint failed',freqs_per_island_idx, task_utilization)
                     # run minizinc to confirm whether it is indeed impossible to have this set of tasks placed on these PUs
-                    # return optimal_placement(idx,freqs_per_island_idx)
-                    return False
+                    return optimal_placement(dags, idx, placement, freqs_per_island_idx)
+                    # return False
                 else:
                     utilization_per_pu[pu] = utilization_per_pu[pu] + t[0]
                     task_placement[pu].append(t[1])
@@ -1246,7 +1248,7 @@ def search_best_placement(placement_setup) -> tuple():
     print ('bad_power', bad_power)
     print ('bad_deadline', bad_deadline)
     print ('bad_utilization', bad_utilization)
-    # print ('minizinc:', minizinc_cnt)
+    print ('minizinc:', minizinc_cnt)
 
     # freq_cnts = Fdag.get_counters()
     # sum_freqs = sum([i[0]+i[1] for i in freq_cnts])
@@ -1276,7 +1278,7 @@ unrelated = None
 # debug mode
 debug = False
 # hack to count the number of times minizinc is executed. need to update it to work w multiple procs
-# minizinc_cnt = 0
+minizinc_cnt = 0
 
 def main():
     global unrelated
