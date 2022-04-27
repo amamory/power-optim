@@ -68,6 +68,29 @@ def load_sw(filename) -> list():
     for idx, i in enumerate(sw['tasks']):
         print ('Task:',idx)
         print (' -',i)
+        # 'wcet_ref' is mandatory for a task and must be int >= 0 
+        if 'wcet_ref' in i:
+            if not isinstance(i['wcet_ref'], int):
+                print("ERROR: the 'wcet_ref' attribute expects int data")
+                sys.exit(1)
+            if i['wcet_ref'] < 0:
+                print("ERROR: the 'wcet_ref' attribute must be >= 0")
+                sys.exit(1)
+        else:
+            print("ERROR: the 'wcet_ref' attribute is mandatory for a task")
+            sys.exit(1)
+        # 'wcet_ref_ns' is mandatory for a task and must be int >= 0 
+        if 'wcet_ref_ns' in i:
+            if not isinstance(i['wcet_ref_ns'], int):
+                print("ERROR: the 'wcet_ref_ns' attribute expects int data")
+                sys.exit(1)
+            if i['wcet_ref_ns'] < 0:
+                print("ERROR: the 'wcet_ref_ns' attribute must be >= 0")
+                sys.exit(1)
+        else:
+            print("ERROR: the 'wcet_ref_ns' attribute is mandatory for a task")
+            sys.exit(1)
+
 
     # load the DAG definition
     print ('')
@@ -75,10 +98,44 @@ def load_sw(filename) -> list():
     for idx, i in enumerate(sw['dags']):
         G = None
         print ('DAG:',idx)
+        # check DAG attributes
+        # 'activation_period' is mandatory for a DAG and must be int > 0 
+        if 'activation_period' in i:
+            if not isinstance(i['activation_period'], int):
+                print("ERROR: the 'activation_period' attribute expects int data")
+                sys.exit(1)
+            if i['activation_period'] <= 0:
+                print("ERROR: the 'activation_period' attribute must be >= 0")
+                sys.exit(1)
+        else:
+            print("ERROR: the 'activation_period' attribute is mandatory for a DAG")
+            sys.exit(1)
+        # 'deadline' is mandatory for a DAG and must be int > 0 
+        if 'deadline' in i:
+            if not isinstance(i['deadline'], int):
+                print("ERROR: the 'deadline' attribute expects int data")
+                sys.exit(1)
+            if i['deadline'] <= 0:
+                print("ERROR: the 'deadline' attribute must be >= 0")
+                sys.exit(1)
+        else:
+            print("ERROR: the 'deadline' attribute is mandatory for a DAG")
+            sys.exit(1)
+        # 'deadline' must be <= 'activation_period'
+        if i['deadline'] > i['activation_period']:
+            print("ERROR: the 'deadline' attribute must be <= 'activation_period'")
+            sys.exit(1)
         # DAG edges
         print (' - edges:',len(i['edge_list']))
         edge_list = []
         for e in i['edge_list']:
+            if not isinstance(e[0], int) or not isinstance(e[1], int):
+                print("ERROR: the graph edges must be int")
+                sys.exit(1)
+            # the edges must be between [0,#tasks-1]
+            if e[0] < 0 or e[1] < 0 or e[0] >= len(sw['tasks']) or e[1] >= len(sw['tasks']):
+                print("ERROR: the graph edges must be between >= 0 and <= #tasks-1")
+                sys.exit(1)
             print("   -", tuple(e))
             edge_list.append(tuple(e))
         sources = [x[0] for x in edge_list]
@@ -113,11 +170,11 @@ def load_sw(filename) -> list():
         # other DAG attributes
         print (' - activation_period:',i['activation_period'])
         print (' - deadline:',i['deadline'])
-        print (' - ref_freq:',i['ref_freq'])
+        # print (' - ref_freq:',i['ref_freq'])
         G.graph['activation_period'] = i['activation_period']
         G.graph['deadline'] = i['deadline']
         # the reference freq is the freq used to characterize this application
-        G.graph['ref_freq'] = i['ref_freq']
+        # G.graph['ref_freq'] = i['ref_freq']
         # when it's deadling with multiple DAGs, this will find the first and last nodes of a DAG
         last_task = [t for t in G.nodes if len(list(G.successors(t))) == 0]
         first_task = [t for t in G.nodes if len(list(G.predecessors(t))) == 0]
@@ -178,6 +235,12 @@ def load_hw(filename):
     print ('')
     print ('ISLANDS:')
     for i in islands['hw']:
+        #######################
+        # check the power file
+        #######################
+        if 'power_file' not in i:
+            print("ERROR: the 'power_file' attribute is mandatory for an island")
+            sys.exit(1)
         if not os.path.isfile(i['power_file']):
             print ('ERROR: file', i['power_file'], 'not found')
             sys.exit(1)
@@ -185,14 +248,50 @@ def load_hw(filename):
         if  len(data.keys()) != 3 or data.keys()[0] != 'freq' or data.keys()[1] != 'busy_power_avg' or data.keys()[2] != 'idle_power_avg':
             print ('ERROR: file', i['power_file'], 'has an invalid syntax')
             sys.exit(1)
+        #######################
+        # check input data types
+        #######################
+        # 'capacity' is mandatory and must be float >0.0 and <= 1.0 
+        if 'capacity' in i:
+            if not isinstance(i['capacity'], float):
+                print("ERROR: the 'capacity' attribute expects float data")
+                sys.exit(1)
+            if i['capacity'] <= 0.0 or i['capacity'] > 1.0:
+                print("ERROR: the 'capacity' attribute must be between (0.0, 1.0]")
+                sys.exit(1)
+        else:
+            print("ERROR: the 'capacity' attribute is mandatory for an island")
+            sys.exit(1)
+        # 'n_pus' is mandatory and must be int > 0
+        if 'n_pus' in i:
+            if not isinstance(i['n_pus'], int):
+                print("ERROR: the 'n_pus' attribute expects int data")
+                sys.exit(1)
+            if i['n_pus'] <= 0:
+                print("ERROR: the 'n_pus' attribute must be > 0")
+                sys.exit(1)
+        else:
+            print("ERROR: the 'n_pus' attribute is mandatory for an island")
+            sys.exit(1)
         # it is IMPORTANT that the power data is sorted in ascending frequency
         data.sort_values(by=['freq'], inplace=True)
         i['busy_power'] = list(data.busy_power_avg)
         i['idle_power'] = list(data.idle_power_avg)
         i['freqs'] = list(data.freq)
-        i['placement'] = [] # the tasks assigned to this island
-        i['pu_utilization'] = [0.0]*i['n_pus'] # the utilization on each PU
-        i['pu_placement'] = [[] for aux in range(i['n_pus'])] # the tasks assigned to each PU
+        # the reference frequency must exist only in the higher capacity island
+        if 'ref_freq' in i:
+            if not isinstance(i['ref_freq'], int):
+                print("ERROR: the 'ref_freq' attribute expects integer data")
+                sys.exit(1)
+            if i['capacity'] != 1.0:
+                print("ERROR: the 'ref_freq' attribute is expected only int the high capacity island")
+                sys.exit(1)
+            if i['ref_freq'] not in i['freqs']:
+                print("ERROR: the 'ref_freq' attribute must match one of the existing frequencies")
+                sys.exit(1)
+        # i['placement'] = [] # the tasks assigned to this island
+        # i['pu_utilization'] = [0.0]*i['n_pus'] # the utilization on each PU
+        # i['pu_placement'] = [[] for aux in range(i['n_pus'])] # the tasks assigned to each PU
         del(i['power_file'])
 
     for idx, i in enumerate(islands['hw']):
@@ -325,7 +424,8 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
             G.nodes[t]["wcet"] = 0
     # TODO reference frequency is an attribute of the hardware or the software ?!?
     # it would be much easier if ref_freq would be an attribute of the hw
-    f_ref = dags[0].graph['ref_freq']
+    # f_ref = dags[0].graph['ref_freq']
+    f_ref = islands[-1]['ref_freq']
     # calculate the wcet for each task
     for idx, i in enumerate(islands):
         # get the frequency assigned to the island i
