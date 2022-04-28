@@ -459,7 +459,7 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
 # which is not scalable code with compexity O(n!)
 # return the list of path wcet for each node. return an empty list if 
 # the dag deadline is not feasible
-def define_path_wcet(H) -> tuple(list(), list()):
+def define_path_wcet(H) -> tuple():
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
     # 2) get all paths to each end node
@@ -493,7 +493,7 @@ def define_path_wcet(H) -> tuple(list(), list()):
                 idx = n
         if idx == -1:
             print ('DEU PAU')
-        return tuple([idx],[])
+        return [idx],[]
 
     # assign the edge weight as the sum of the node weights
     for u, v, data in H.edges(data=True):
@@ -532,7 +532,7 @@ def define_path_wcet(H) -> tuple(list(), list()):
         # temp_tuple = (terminate_counters[1][0]+1,terminate_counters[1][1]+elapsed_time)
         # terminate_counters[1] = temp_tuple            
         # return []
-        return tuple(critical_path,[])
+        return critical_path,[]
 
     ####################
     # 2) get all paths to each end node
@@ -581,7 +581,7 @@ def define_path_wcet(H) -> tuple(list(), list()):
             # temp_tuple = (terminate_counters[2][0]+1,terminate_counters[2][1]+elapsed_time)
             # terminate_counters[2] = temp_tuple
             # return []
-            return tuple(max_partial_path[1],[])
+            return max_partial_path[1],[]
         # save the longest of all paths
         if max_partial_path[0] > critical_path2[0]:
             critical_path2 = max_partial_path
@@ -599,12 +599,12 @@ def define_path_wcet(H) -> tuple(list(), list()):
         print ('ERROR: critical path', critical_path2[1], 'takes', critical_path2[0],', longer than DAG deadline', dag_deadline)
         return []
 
-    return path_wcet_list
+    return [],path_wcet_list
 
 def encode_placement(task_set) -> int:
     mask =  0
     for n in task_set:
-        mask = mask or (1<<n)
+        mask = mask | (1<<n)
     return mask
 
 # Assign relative deadline to each node
@@ -633,8 +633,7 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> int:
             if debug:
                 print ('relative deadline failed with freqs',freqs_per_island_idx)
             # an empty list, which means dag deadline is not feasible
-            bad_nodes_enc = encode_placement(bad_nodes)
-            return bad_nodes_enc
+            return bad_nodes
         #print (path_wcet_list)
         ############################
         # 2) assign deadline to all nodes proportionally to its wcet and path wcet
@@ -684,11 +683,10 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> int:
                 # temp_tuple = (terminate_counters[3][0]+1,0.0)
                 # terminate_counters[3] = temp_tuple
                 # return -1
-                bad_nodes_enc = encode_placement([n])
-                return bad_nodes_enc
+                return [n]
 
     # -1 means no bad results, which means this is a solution that satisfies the dag deadline
-    return -1
+    return []
 
 # Generates the datafile required to run the function 'optimal_placement'
 # The generated model is such that all nodes are included into the model 
@@ -1161,47 +1159,89 @@ def placement_prunning(dags) -> list():
 
     # assign the highest freq to all islands
     freqs_per_island_idx = [len(islands[i]['freqs'])-1 for i in range(len(islands))]
-    # reference frequency is an attribute of the hardware 
-    # used to extract the performance parameters of the sw YAML file
-    f_ref = islands[-1]['ref_freq']
     # get all actual tasks of all dags
     all_tasks = [G.graph['actual_tasks'] for G in dags]
     # flatenning the list of list into a single list
     all_tasks = list(itertools.chain(*all_tasks))
 
+    #############
+    # check deadline related constraints
+    #############
     # check whether there is a single task that cannot be placed onto an island 
     # due to deadline violation, considering the island highest frequency
     for idx,i in enumerate(islands):
         placement = [[] for not_used in range(len(islands))]
         placement[idx] = list(all_tasks[:])
-        # place all tasks into one island and use its highest frequency
-        define_wcet(dags, placement, freqs_per_island_idx)
-        # for G in dags:
-        #     dag_deadline = G.graph['deadline']
-        #     for n in G.nodes:
-        #         # if a single task is longer than the dag deadline, then this is not a solution
-        #         if (G.nodes[n]["wcet"] > dag_deadline):
-        #             if debug:
-        #                 print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
-        #                 for t in G.graph['actual_tasks']:
-        #                     print (t, G.nodes[t]["wcet"])
-        #             bad_placements[idx].append(1<<n)
-        # Assuming the highest capacity island at its highest frequency, 
-        # check for deadline miss at the DAG critical path
-        bad_nodes = define_rel_deadlines(dags,freqs_per_island_idx)
-        if bad_nodes >= 0:
-            if debug:
-                print ('relative deadline failed with freqs',freqs_per_island_idx)
-            # mask =  0
-            # for n in bad_nodes:
-            #     mask = mask or (1<<n)
-            mask = encode_placement(bad_nodes)
-            bad_placements[idx].append(mask)                    
+        freqs_per_island_idx = [0 for not_used in range(len(islands))]
+        freq_idx = range(len(i['freqs']))
+        # for f in range(len(i['freqs'])-1,-1,-1):
+        for f in reversed(freq_idx):
+            freqs_per_island_idx[idx] = f
+            # place all tasks into one island and use its highest frequency
+            define_wcet(dags, placement, freqs_per_island_idx)
+            # for G in dags:
+            #     dag_deadline = G.graph['deadline']
+            #     for n in G.nodes:
+            #         # if a single task is longer than the dag deadline, then this is not a solution
+            #         if (G.nodes[n]["wcet"] > dag_deadline):
+            #             if debug:
+            #                 print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
+            #                 for t in G.graph['actual_tasks']:
+            #                     print (t, G.nodes[t]["wcet"])
+            #             bad_placements[idx].append(1<<n)
+            # Assuming the highest capacity island at its highest frequency, 
+            # check for deadline miss at the DAG critical path
+            bad_nodes = define_rel_deadlines(dags,freqs_per_island_idx)
+            if len(bad_nodes) > 0:
+                if debug:
+                    print ('relative deadline failed with freqs',freqs_per_island_idx)
+                # mask =  0
+                # for n in bad_nodes:
+                #     mask = mask or (1<<n)
+                mask = encode_placement(bad_nodes)
+                bad_placements[idx].append((mask,f))
+                break
 
     for i in range(len(islands)):
         print ('island:',i,'bad_placements:', len(bad_placements[i]))
         for p in bad_placements[i]:
-            print (' -',hex(p))
+            print (' -',hex(p[0]),p[1])
+
+    #############
+    # get the minimal utilization for all tasks
+    # U = wcet / dline, thus we need to minimize wcet and maxize dline
+    #############
+    task_utilization_list = []
+    # assign the highest freq to the high capacity islands 
+    # and the lowest freq for the rest of the islands
+    freqs_per_island_idx = [0 for i in range(len(islands))]
+    freqs_per_island_idx[-1] = len(islands[-1]['freqs'])-1
+    for G in dags:
+        for n in G.graph['actual_tasks']:
+            # place task n in the high capacity island wthe highest freq
+            # and all the other tasks in the lowest capacity w the lowest freq
+            placement = [[] for not_used in range(len(islands))]
+            placement[0] = list(set(all_tasks) - set([n]))
+            placement[-1].append(n)
+            define_wcet(dags, placement, freqs_per_island_idx)
+            define_rel_deadlines(dags,freqs_per_island_idx)
+            util = float(G.nodes[n]['wcet']) / float(G.nodes[n]['rel_deadline'])
+            task_utilization_list.append((util, n))
+            print ('utilization:',n,util)
+
+    for u in unrelated:
+        util_sum = 0
+        for t in u:
+            for tu in task_utilization_list:
+                if t == tu[1]:
+                    util_sum += tu[0]
+        # TODO: run minizinc to check the utilization
+        print('unrelated:', u, 'sum:', util_sum)
+
+    for i in range(len(islands)):
+        print ('island:',i,'bad_placements:', len(bad_placements[i]))
+        for p in bad_placements[i]:
+            print (' -',hex(p[0]),p[1])
 
     return bad_placements
 
@@ -1355,7 +1395,7 @@ def search_best_placement(placement_setup) -> tuple():
                 potential_solutions = potential_solutions +1
                 # find the critical path and check whether the solution might be feasible.
                 # If so, divide the dag deadline proportionly to the weight of each node in the critical path
-                if define_rel_deadlines(dags,freqs_per_island_idx) != -1: # TODO could have some variability in rel deadline assingment
+                if len(define_rel_deadlines(dags,freqs_per_island_idx)) == 0: # TODO could have some variability in rel deadline assingment
                     bad_deadline =bad_deadline +1
                     # freq_cnts[f] = freq_cnts[f] +1
                     Fdag.not_viable()
@@ -1485,6 +1525,8 @@ def main():
     n_procs = args.processes
     # by default, run the entire search space. 
     max_placement_per_worker = args.iter
+
+    placement_prunning(dags)
 
     ################
     # Parallel workload setup
