@@ -11,6 +11,7 @@ import math
 import time
 import yaml
 import argparse
+import itertools
 # libs
 import freq_dag
 
@@ -422,9 +423,8 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
     for G in dags:
         for t in G.nodes:
             G.nodes[t]["wcet"] = 0
-    # TODO reference frequency is an attribute of the hardware or the software ?!?
-    # it would be much easier if ref_freq would be an attribute of the hw
-    # f_ref = dags[0].graph['ref_freq']
+    # reference frequency is an attribute of the hardware 
+    # used to extract the performance parameters of the sw YAML file
     f_ref = islands[-1]['ref_freq']
     # calculate the wcet for each task
     for idx, i in enumerate(islands):
@@ -459,7 +459,7 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
 # which is not scalable code with compexity O(n!)
 # return the list of path wcet for each node. return an empty list if 
 # the dag deadline is not feasible
-def define_path_wcet(H) -> list():
+def define_path_wcet(H) -> tuple(list(), list()):
     # main steps:   
     # 1) convert node weight into edge weight to find longest paths
     # 2) get all paths to each end node
@@ -486,7 +486,14 @@ def define_path_wcet(H) -> list():
                 print (t, H.nodes[t]["wcet"])
         # temp_tuple = (terminate_counters[0][0]+1,terminate_counters[0][1]+elapsed_time)
         # terminate_counters[0] = temp_tuple
-        return []
+        # return []
+        idx = -1
+        for n in H.nodes:
+            if H.nodes[n]["wcet"] == max_task_wcet:
+                idx = n
+        if idx == -1:
+            print ('DEU PAU')
+        return tuple([idx],[])
 
     # assign the edge weight as the sum of the node weights
     for u, v, data in H.edges(data=True):
@@ -524,7 +531,8 @@ def define_path_wcet(H) -> list():
             print ('WARNING: critical path', critical_path,'has lenght', wcet_critical_path, 'which is longer than then DAG deadline', dag_deadline)
         # temp_tuple = (terminate_counters[1][0]+1,terminate_counters[1][1]+elapsed_time)
         # terminate_counters[1] = temp_tuple            
-        return []
+        # return []
+        return tuple(critical_path,[])
 
     ####################
     # 2) get all paths to each end node
@@ -572,7 +580,8 @@ def define_path_wcet(H) -> list():
                 print ('WARNING: critical path', max_partial_path[1], 'takes', max_partial_path[0],', longer than DAG deadline', dag_deadline)
             # temp_tuple = (terminate_counters[2][0]+1,terminate_counters[2][1]+elapsed_time)
             # terminate_counters[2] = temp_tuple
-            return []
+            # return []
+            return tuple(max_partial_path[1],[])
         # save the longest of all paths
         if max_partial_path[0] > critical_path2[0]:
             critical_path2 = max_partial_path
@@ -592,12 +601,20 @@ def define_path_wcet(H) -> list():
 
     return path_wcet_list
 
+def encode_placement(task_set) -> int:
+    mask =  0
+    for n in task_set:
+        mask = mask or (1<<n)
+    return mask
+
 # Assign relative deadline to each node
 # TODO it's also very inneficient because this is calculated for every frequency for every placement.
 # the critical path and the relative deadlines could be pre-processed only once at startup
 # TODO replace it by Tommaso's function
 # freqs_per_island_idx used only for debugging purposes
-def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:    
+def define_rel_deadlines(dags,freqs_per_island_idx) -> int:    
+
+
     # main steps:   
     # 1) assign path wcet to each node - compexity O(n!)
     # 2) assign deadline to all nodes proportionally to its wcet and path wcet
@@ -611,12 +628,13 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
         ############################
         # 1) assign path wcet to each node
         ############################
-        path_wcet_list = define_path_wcet(H)
+        bad_nodes, path_wcet_list = define_path_wcet(H)
         if not path_wcet_list:
             if debug:
                 print ('relative deadline failed with freqs',freqs_per_island_idx)
             # an empty list, which means dag deadline is not feasible
-            return False
+            bad_nodes_enc = encode_placement(bad_nodes)
+            return bad_nodes_enc
         #print (path_wcet_list)
         ############################
         # 2) assign deadline to all nodes proportionally to its wcet and path wcet
@@ -665,9 +683,12 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> bool:
                     print ('relative deadline failed with freqs',freqs_per_island_idx)
                 # temp_tuple = (terminate_counters[3][0]+1,0.0)
                 # terminate_counters[3] = temp_tuple
-                return False
+                # return -1
+                bad_nodes_enc = encode_placement([n])
+                return bad_nodes_enc
 
-    return True
+    # -1 means no bad results, which means this is a solution that satisfies the dag deadline
+    return -1
 
 # Generates the datafile required to run the function 'optimal_placement'
 # The generated model is such that all nodes are included into the model 
@@ -1131,6 +1152,60 @@ def convert_placement_list_to_np_array(dags,placement):
 # print ("{:.2f}".format(best_power), best_freq)
 # sys.exit(1)
 
+# It runs several checks searching for known bad placements
+# and encode each of these bad placements in an int.
+# Return a list of masks of unwanted task placements
+def placement_prunning(dags) -> list():
+    # where the 'to be prunned' placements are stored, separated by island
+    bad_placements = [[] for not_used in range(len(islands))]
+
+    # assign the highest freq to all islands
+    freqs_per_island_idx = [len(islands[i]['freqs'])-1 for i in range(len(islands))]
+    # reference frequency is an attribute of the hardware 
+    # used to extract the performance parameters of the sw YAML file
+    f_ref = islands[-1]['ref_freq']
+    # get all actual tasks of all dags
+    all_tasks = [G.graph['actual_tasks'] for G in dags]
+    # flatenning the list of list into a single list
+    all_tasks = list(itertools.chain(*all_tasks))
+
+    # check whether there is a single task that cannot be placed onto an island 
+    # due to deadline violation, considering the island highest frequency
+    for idx,i in enumerate(islands):
+        placement = [[] for not_used in range(len(islands))]
+        placement[idx] = list(all_tasks[:])
+        # place all tasks into one island and use its highest frequency
+        define_wcet(dags, placement, freqs_per_island_idx)
+        # for G in dags:
+        #     dag_deadline = G.graph['deadline']
+        #     for n in G.nodes:
+        #         # if a single task is longer than the dag deadline, then this is not a solution
+        #         if (G.nodes[n]["wcet"] > dag_deadline):
+        #             if debug:
+        #                 print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
+        #                 for t in G.graph['actual_tasks']:
+        #                     print (t, G.nodes[t]["wcet"])
+        #             bad_placements[idx].append(1<<n)
+        # Assuming the highest capacity island at its highest frequency, 
+        # check for deadline miss at the DAG critical path
+        bad_nodes = define_rel_deadlines(dags,freqs_per_island_idx)
+        if bad_nodes >= 0:
+            if debug:
+                print ('relative deadline failed with freqs',freqs_per_island_idx)
+            # mask =  0
+            # for n in bad_nodes:
+            #     mask = mask or (1<<n)
+            mask = encode_placement(bad_nodes)
+            bad_placements[idx].append(mask)                    
+
+    for i in range(len(islands)):
+        print ('island:',i,'bad_placements:', len(bad_placements[i]))
+        for p in bad_placements[i]:
+            print (' -',hex(p))
+
+    return bad_placements
+
+
 # Pass the shared variables to the pool of processes.
 # like shared values, locks cannot be shared in a Pool - instead, pass the 
 # multiprocessing.Lock() at Pool creation time, using the initializer=init_globals.
@@ -1280,7 +1355,7 @@ def search_best_placement(placement_setup) -> tuple():
                 potential_solutions = potential_solutions +1
                 # find the critical path and check whether the solution might be feasible.
                 # If so, divide the dag deadline proportionly to the weight of each node in the critical path
-                if not define_rel_deadlines(dags,freqs_per_island_idx): # TODO could have some variability in rel deadline assingment
+                if define_rel_deadlines(dags,freqs_per_island_idx) != -1: # TODO could have some variability in rel deadline assingment
                     bad_deadline =bad_deadline +1
                     # freq_cnts[f] = freq_cnts[f] +1
                     Fdag.not_viable()
