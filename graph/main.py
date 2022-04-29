@@ -1305,11 +1305,13 @@ def placement_prunning(dags) -> list():
 # The init_globals is defined as a function - see init_globals() at the top.
 # source : https://serveanswer.com/questions/multiprocessing-pool-map-multiple-arguments-with-shared-value-resolved
 # source: https://stackoverflow.com/questions/53617425/sharing-a-counter-with-multiprocessing-pool
-def init_globals(counter, l):
+def init_globals(counter, l, bad_p):
     global shared_best_power
     global shared_lock
+    global bad_placements
     shared_best_power = counter
     shared_lock = l
+    bad_placements = bad_p
 
 # It converts an integer into a list of list representing the actual task mapping onto islands.
 # Limitation: supports up to 32 tasks assuming a 32-bit int encodes the task mapping.
@@ -1333,14 +1335,44 @@ def decode_mapping(curr_mapping, n_islands, n_tasks) -> list():
         mapping[island].append(i)
     return mapping
 
+#  count '1' bits in a integer
+def count_ones(num) -> int:
+    occurrences = 0
+    for i, c in enumerate(bin(num)[:1:-1], 1):
+        if c == '1':
+            occurrences += 1
+    return occurrences
+
 # Return a task mapping onto islands from an integer code.
 # This function is divided into two parts:
-#  1) the mapping decoding based on a numerical system of 'n_islands' base
-#  2) the mapping adjustment to discard the dummy tasks
+#  1) skip previously prunned mappings
+#    TODO: incomplete because it is not considering the frequency from the 'bad_placements' list
+#  2) the mapping decoding based on a numerical system of 'n_islands' base
+#  3) the mapping adjustment to discard the dummy tasks
 def get_mapping(dags, curr_mapping, n_islands, n_tasks) -> list():
-    # 1) the mapping decoding based on a numerical system of 'n_islands' base
+    global bad_placements
+    # 1) skip previously prunned mappings
+    # perform logical 'and' of curr_mapping with all prunned mappings. Then perform an 'or' reduction
+    import functools
+    while True:
+        # https://stackoverflow.com/questions/67159603/python-list-comprehension-with-bitwise-logical-operators
+        # bad = functools.reduce(lambda a, b: a | b, [(bad_placements[i][j][0] & curr_mapping) for i in range(0, len(bad_placements)) for j in range(0, len(bad_placements[i]))])
+        # bad = False
+        and_list = [False]*sum([len(i) for i in bad_placements])
+        idx = 0
+        for i in range(0, len(bad_placements)):
+            for j in range(0, len(bad_placements[i])):
+                mask = bad_placements[i][j][0] & curr_mapping
+                if mask != 0:
+                    and_list[idx] = count_ones(mask) == count_ones(bad_placements[i][j][0])
+        bad = functools.reduce(lambda a, b: a | b, and_list)
+        if not bad:
+            break
+        # print ('\n\nBAAAAD:',curr_mapping)
+        curr_mapping += 1
+    # 2) the mapping decoding based on a numerical system of 'n_islands' base
     placement = decode_mapping(curr_mapping, n_islands, n_tasks)
-    # 2) the mapping adjustment to discard the dummy tasks
+    # 3) the mapping adjustment to discard the dummy tasks
     dummy_tasks = [dag.graph['first_task'] for dag in dags]
     dummy_tasks += [dag.graph['last_task'] for dag in dags]
     dummy_tasks.sort()
@@ -1547,6 +1579,8 @@ debug = False
 # hack to count the number of times minizinc is executed. need to update it to work w multiple procs
 minizinc_cnt = 0
 
+bad_placements = None
+
 def main():
     global unrelated
     global islands
@@ -1578,11 +1612,11 @@ def main():
     # by default, run the entire search space. 
     max_placement_per_worker = args.iter
 
-    # bad_placements = placement_prunning(dags)
-    # for i in range(len(islands)):
-    #     print ('island:',i,'bad_placements:', len(bad_placements[i]))
-    #     for p in bad_placements[i]:
-    #         print (' -',hex(p[0]),p[1])
+    bad_placements = placement_prunning(dags)
+    for i in range(len(islands)):
+        print ('island:',i,'bad_placements:', len(bad_placements[i]))
+        for p in bad_placements[i]:
+            print (' -',hex(p[0]),p[1])
 
     ################
     # Parallel workload setup
@@ -1601,7 +1635,7 @@ def main():
     # results as soon as they are available instead of waiting until everything is finished. So you could tally the amount of returned results and use that to update the progress bar.
     # source: https://devdreamz.com/question/633149-how-to-use-values-in-a-multiprocessing-pool-with-python
     best_placement_list = []
-    pool =  mp.Pool(initializer=init_globals, processes=n_procs, initargs=(shared_best_power,shared_lock,))
+    pool =  mp.Pool(initializer=init_globals, processes=n_procs, initargs=(shared_best_power,shared_lock, bad_placements,))
     # result_list = pool.map(search_best_placement, placement_setup_list)
     for best_placement in pool.map(search_best_placement, placement_setup_list):
         best_placement_list.append(best_placement)
