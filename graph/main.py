@@ -422,9 +422,8 @@ def define_wcet(dags, placement, freqs_per_island_idx) -> None:
     for G in dags:
         for t in G.nodes:
             G.nodes[t]["wcet"] = 0
-    # TODO reference frequency is an attribute of the hardware or the software ?!?
-    # it would be much easier if ref_freq would be an attribute of the hw
-    # f_ref = dags[0].graph['ref_freq']
+    # reference frequency is an attribute of the hardware 
+    # used to extract the performance parameters of the sw YAML file
     f_ref = islands[-1]['ref_freq']
     # calculate the wcet for each task
     for idx, i in enumerate(islands):

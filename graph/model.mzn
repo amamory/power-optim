@@ -45,18 +45,30 @@ int: digs = ceil(log(10.0,int2float(total)));
 array [NODE] of var 0..total: s;           % start times for each task
 array [NODE,CORE] of var 0..1: sel;        % 1 when the ws is selected to execute the task
 var 0.0..total_utillization: U_max;        % the objective function
-% utilization per PU, used only for printing the output
+% utilization per PU, used only for printing debug info
 array [CORE] of var 0.0..total_utillization: pu_utilization; 
+% utilization per unrelated set, used only for printing debug info
+array [1..N_UNREL_ROWS,CORE] of var 0.0..total_utillization: unrelated_utilization;
 
 % a job runs on a single PU
 constraint forall(i in NODE)(
              sum(row(sel,i)) == 1);
 
-%% check utilization constraint for the set of unrelated tasks that can run concurrently
+%% check utilization constraint for the set of unrelated tasks that can run concurrently on each core
 constraint 
-    max(u in 1..N_UNREL_ROWS)(
-        sum(t in 1..N_UNREL_COLS)(U[unrelated_node[u,t]])
-    ) <= 1.0;
+    forall(c in CORE,u in 1..N_UNREL_ROWS)(
+        unrelated_utilization[u,c] = sum(t in 1..N_UNREL_COLS)(
+            let { 
+            var NODE: n = to_enum(NODE,unrelated_node[u,t]);
+            } in 
+            sel[n,c]*U[n]
+        )
+    ) ;
+
+constraint 
+    forall(c in CORE)(
+        max(u in 1..N_UNREL_ROWS)(unrelated_utilization[u,c]) <= 1.0
+    ) ;
 
 % Minize the max utilization of the cores.
 % Sum the utilization for each core and minimizes the maximal utilization, 
@@ -106,6 +118,11 @@ output ["selected cores:\n"] ++
        ["PU utilization: "] ++
        [ show_float(digs,2,pu_utilization[i]) ++ " " |   
          i in CORE 
+       ] ++
+       ["\nUnrelated utilization:\n"] ++
+       [ show_float(digs,2,unrelated_utilization[i,j]) ++ " " ++ 
+         if j == last_core then "\n" else "" endif |
+         i in 1..N_UNREL_ROWS, j in CORE 
        ] ++
        ["\nstart times: "] ++
        [ show_int(digs,s[i]) ++ " " |   
