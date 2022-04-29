@@ -612,9 +612,7 @@ def encode_placement(task_set) -> int:
 # the critical path and the relative deadlines could be pre-processed only once at startup
 # TODO replace it by Tommaso's function
 # freqs_per_island_idx used only for debugging purposes
-def define_rel_deadlines(dags,freqs_per_island_idx) -> int:    
-
-
+def define_rel_deadlines(dags,freqs_per_island_idx) -> list():    
     # main steps:   
     # 1) assign path wcet to each node - compexity O(n!)
     # 2) assign deadline to all nodes proportionally to its wcet and path wcet
@@ -685,7 +683,7 @@ def define_rel_deadlines(dags,freqs_per_island_idx) -> int:
                 # return -1
                 return [n]
 
-    # -1 means no bad results, which means this is a solution that satisfies the dag deadline
+    # empty means no bad results, which means this is a solution that satisfies the dag deadline
     return []
 
 # Generates the datafile required to run the function 'optimal_placement'
@@ -1179,69 +1177,123 @@ def placement_prunning(dags) -> list():
             freqs_per_island_idx[idx] = f
             # place all tasks into one island and use its highest frequency
             define_wcet(dags, placement, freqs_per_island_idx)
-            # for G in dags:
-            #     dag_deadline = G.graph['deadline']
-            #     for n in G.nodes:
-            #         # if a single task is longer than the dag deadline, then this is not a solution
-            #         if (G.nodes[n]["wcet"] > dag_deadline):
-            #             if debug:
-            #                 print ('WARNING: a single task wcet is longer than then DAG deadline', dag_deadline)
-            #                 for t in G.graph['actual_tasks']:
-            #                     print (t, G.nodes[t]["wcet"])
-            #             bad_placements[idx].append(1<<n)
             # Assuming the highest capacity island at its highest frequency, 
             # check for deadline miss at the DAG critical path
             bad_nodes = define_rel_deadlines(dags,freqs_per_island_idx)
             if len(bad_nodes) > 0:
                 if debug:
                     print ('relative deadline failed with freqs',freqs_per_island_idx)
-                # mask =  0
-                # for n in bad_nodes:
-                #     mask = mask or (1<<n)
                 mask = encode_placement(bad_nodes)
                 bad_placements[idx].append((mask,f))
+                # no need to test lower freqs if the higher freq failed
                 break
 
-    for i in range(len(islands)):
-        print ('island:',i,'bad_placements:', len(bad_placements[i]))
-        for p in bad_placements[i]:
-            print (' -',hex(p[0]),p[1])
+    # for i in range(len(islands)):
+    #     print ('island:',i,'bad_placements:', len(bad_placements[i]))
+    #     for p in bad_placements[i]:
+    #         print (' -',hex(p[0]),p[1])
+
+    # #############
+    # # get the minimal utilization for all tasks
+    # # U = wcet / dline, thus we need to minimize wcet and maxize dline
+    # #############
+    # task_utilization_list = []
+    # # assign the highest freq to the high capacity islands 
+    # # and the lowest freq for the rest of the islands
+    # freqs_per_island_idx = [0 for i in range(len(islands))]
+    # freqs_per_island_idx[-1] = len(islands[-1]['freqs'])-1
+    # for G in dags:
+    #     for n in G.graph['actual_tasks']:
+    #         # place task n in the high capacity island wthe highest freq
+    #         # and all the other tasks in the lowest capacity w the lowest freq
+    #         placement = [[] for not_used in range(len(islands))]
+    #         placement[0] = list(set(all_tasks) - set([n]))
+    #         placement[-1].append(n)
+    #         define_wcet(dags, placement, freqs_per_island_idx)
+    #         define_rel_deadlines(dags,freqs_per_island_idx)
+    #         util = float(G.nodes[n]['wcet']) / float(G.nodes[n]['rel_deadline'])
+    #         task_utilization_list.append((util, n))
+    #         print ('utilization:',n,util)
+
+    # for u in unrelated:
+    #     util_sum = 0
+    #     for t in u:
+    #         for tu in task_utilization_list:
+    #             if t == tu[1]:
+    #                 util_sum += tu[0]
+    #     # TODO: run minizinc to check the utilization
+    #     print('unrelated:', u, 'sum:', util_sum)
+
+    # test the unrelated sets for the utilization constratint assuming they 
+    # are using their respective minimal utilization
+    # for u in unrelated:
+    #     # place all tasks of u in the high capacity island w the highest freq
+    #     # and all the other tasks in the lowest capacity w the lowest freq
+    #     placement = [[] for not_used in range(len(islands))]
+    #     placement[0] = list(set(all_tasks) - set(u))
+    #     placement[-1] = list(u)
+    #     if not optimal_placement(dags, len(islands)-1, placement, freqs_per_island_idx):
+    #         if debug:
+    #             print ('relative deadline failed with freqs',freqs_per_island_idx)
+    #         mask = encode_placement(u)
+    #         bad_placements[idx].append((mask,f))
+    #         break
 
     #############
-    # get the minimal utilization for all tasks
-    # U = wcet / dline, thus we need to minimize wcet and maxize dline
+    # check the unrelated set for deadline and utilization constraints
+    # U = wcet / dline, thus we need to minimize wcet and maximize dline
     #############
-    task_utilization_list = []
-    # assign the highest freq to the high capacity islands 
-    # and the lowest freq for the rest of the islands
-    freqs_per_island_idx = [0 for i in range(len(islands))]
-    freqs_per_island_idx[-1] = len(islands[-1]['freqs'])-1
-    for G in dags:
-        for n in G.graph['actual_tasks']:
-            # place task n in the high capacity island wthe highest freq
+    # The rational is to place the unrelated sets in all islands 
+    # testing all freqs in deacreasing freq order. All other tasks are
+    # always placed on the min capacity island with the lowest freq.
+    # This way, the utilization of the tasks in the unrelates set will be minimized.
+    # Thus, if it turns out that this set is not feasible under minimal utilization,
+    # then it will obviously not be feasible under higher utilization
+    # TODO: confirm that this condition for minimal utilization holds in the general case
+    island_range = range(1,len(islands))
+    # test all unrelated for all islands under all freqs
+    for u in unrelated:
+        # no need to test again individual tasks
+        if len(u) <= 1:
+            continue
+        for idx in reversed(island_range):
+            i = islands[idx]
+            # place all tasks of u in the high capacity island w the highest freq
             # and all the other tasks in the lowest capacity w the lowest freq
             placement = [[] for not_used in range(len(islands))]
-            placement[0] = list(set(all_tasks) - set([n]))
-            placement[-1].append(n)
-            define_wcet(dags, placement, freqs_per_island_idx)
-            define_rel_deadlines(dags,freqs_per_island_idx)
-            util = float(G.nodes[n]['wcet']) / float(G.nodes[n]['rel_deadline'])
-            task_utilization_list.append((util, n))
-            print ('utilization:',n,util)
-
-    for u in unrelated:
-        util_sum = 0
-        for t in u:
-            for tu in task_utilization_list:
-                if t == tu[1]:
-                    util_sum += tu[0]
-        # TODO: run minizinc to check the utilization
-        print('unrelated:', u, 'sum:', util_sum)
-
-    for i in range(len(islands)):
-        print ('island:',i,'bad_placements:', len(bad_placements[i]))
-        for p in bad_placements[i]:
-            print (' -',hex(p[0]),p[1])
+            placement[0] = list(set(all_tasks) - set(u))
+            placement[idx] = list(u)
+            # initialize the islands freqs
+            freqs_per_island_idx = [0 for not_used in range(len(islands))]
+            freq_idx = range(len(i['freqs']))
+            for f in reversed(freq_idx):
+                freqs_per_island_idx[idx] = f
+                # place all tasks into one island and use its highest frequency
+                define_wcet(dags, placement, freqs_per_island_idx)
+                # Not actually checking the deadline constraint. Using it 
+                # only to have the rel_deadline assigned to all nodes
+                bad_nodes = define_rel_deadlines(dags,freqs_per_island_idx)
+                # if len(bad_nodes) > 0:
+                #     if debug:
+                #         print ('relative deadline failed with freqs',freqs_per_island_idx)
+                #     # mask =  0
+                #     # for n in bad_nodes:
+                #     #     mask = mask or (1<<n)
+                #     mask = encode_placement(bad_nodes)
+                #     bad_placements[idx].append((mask,f))
+                #     break
+                if not optimal_placement(dags, idx, placement, freqs_per_island_idx):
+                    if debug:
+                        print ('relative deadline failed with freqs',freqs_per_island_idx)
+                    mask = encode_placement(u)
+                    bad_placements[idx].append((mask,f))
+                    # if this solution is bad for island idx, it will also be bad for all 
+                    # other islands with capacity lower than island idx
+                    # TODO Is that ways true ?!?!?
+                    for idx2 in range (idx):
+                        bad_placements[idx2].append((mask,f))
+                    # no need to test lower freqs if the higher freq failed
+                    break
 
     return bad_placements
 
@@ -1395,7 +1447,7 @@ def search_best_placement(placement_setup) -> tuple():
                 potential_solutions = potential_solutions +1
                 # find the critical path and check whether the solution might be feasible.
                 # If so, divide the dag deadline proportionly to the weight of each node in the critical path
-                if len(define_rel_deadlines(dags,freqs_per_island_idx)) == 0: # TODO could have some variability in rel deadline assingment
+                if len(define_rel_deadlines(dags,freqs_per_island_idx)) != 0: # TODO could have some variability in rel deadline assingment
                     bad_deadline =bad_deadline +1
                     # freq_cnts[f] = freq_cnts[f] +1
                     Fdag.not_viable()
@@ -1526,7 +1578,11 @@ def main():
     # by default, run the entire search space. 
     max_placement_per_worker = args.iter
 
-    placement_prunning(dags)
+    # bad_placements = placement_prunning(dags)
+    # for i in range(len(islands)):
+    #     print ('island:',i,'bad_placements:', len(bad_placements[i]))
+    #     for p in bad_placements[i]:
+    #         print (' -',hex(p[0]),p[1])
 
     ################
     # Parallel workload setup
